@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude doctor *)",
+      "Bash(claude install *)",
+      "Read(//home/admin/**)",
+      "Bash(pip list *)",
+      "Bash(python3 -c \"import llama_index, streamlit, faiss, kuzu\")",
+      "Bash(pip3 list *)",
+      "Bash(conda env *)",
+      "Bash(git -C /home/admin/RAG rev-parse --is-inside-work-tree)"
+    ]
+  }
+}
