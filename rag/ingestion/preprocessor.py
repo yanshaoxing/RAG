@@ -1,7 +1,7 @@
 """
 文档预处理模块 —— 章节感知分割 + 文档加载 + 分块管道。
 
-供 indexer.py 调用，两个入口（app.py / app_ui.py）不直接使用本模块。
+供 rag/indexing/staged_indexer.py 调用，两个入口（app/cli.py / app/ui.py）不直接使用本模块。
 """
 
 import re

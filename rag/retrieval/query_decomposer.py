@@ -36,15 +36,13 @@ class QueryDecomposer:
         self,
         llm: Optional[CustomLLM] = None,
         enabled: bool = True,
-        log_list: Optional[list] = None,
     ):
         self._llm = llm
         self._enabled = enabled
-        self._log_list = log_list
 
-    def _log(self, msg: str):
-        if self._log_list is not None:
-            self._log_list.append(msg)
+    @staticmethod
+    def _log(msg: str):
+        logger.info(msg)
 
     def decompose(self, query: str) -> tuple[bool, list[str]]:
         """

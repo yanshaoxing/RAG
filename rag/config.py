@@ -16,6 +16,7 @@ EMBED_MODEL_NAME = "qwen3-embedding:8b"
 EMBED_OLLAMA_BASE_URL = os.environ.get("RAG_EMBED_OLLAMA_BASE_URL", "http://10.245.100.186:12434")
 EMBED_BATCH_SIZE = 512
 EMBED_VECTOR_DIM = 4096            # qwen3-embedding:8b 输出维度（用于 FAISS）
+EMBED_TIMEOUT = 300.0              # embedding 请求超时（秒），独立于回答 LLM 超时
 
 # ============================================================
 # HNSW 索引参数（替代 IndexFlatIP，大幅加速检索）

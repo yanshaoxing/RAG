@@ -24,15 +24,14 @@ logger = logging.getLogger(__name__)
 class QueryRewriter:
     """三路查询重写：NL改写 + HyDE + BM25关键词扩展。"""
 
-    def __init__(self, enabled: bool = True, log_list: Optional[list] = None, llm: Optional[CustomLLM] = None):
+    def __init__(self, enabled: bool = True, llm: Optional[CustomLLM] = None):
         self._enabled = enabled
-        self._log_list = log_list
         self._llm = llm
         self._term_map: dict[str, str] = self._load_term_map()
 
-    def _log(self, msg: str):
-        if self._log_list is not None:
-            self._log_list.append(msg)
+    @staticmethod
+    def _log(msg: str):
+        logger.info(msg)
 
     # ---------- 阶段 0：术语映射 ----------
 

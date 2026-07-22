@@ -55,9 +55,8 @@ if __name__ == "__main__":
 
     # 构建知识图谱
     print("\n[2/2] 构建知识图谱...")
-    log_list = []
     graph_index = build_graph(
-        raw_documents, Settings.llm, log_list,
+        raw_documents, Settings.llm,
         force_rebuild=force_rebuild, resume_from=resume_from,
     )
 

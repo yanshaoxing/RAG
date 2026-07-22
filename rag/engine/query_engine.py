@@ -3,7 +3,8 @@
 
 支持可选的图检索增强：在图检索结果可用时，将其作为附加上下文注入到参考资料中。
 
-供 app.py 和 app_ui.py 统一使用，确保两个入口使用完全相同的查询配置。
+供两个入口（app/cli.py 与 app/ui.py，经 rag/engine/bootstrap.py 装配）统一使用，
+确保 CLI 与 Web 使用完全相同的查询配置。
 """
 
 from typing import Optional, List

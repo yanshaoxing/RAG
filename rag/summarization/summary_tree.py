@@ -24,6 +24,11 @@ from rag.llm.factory import create_summary_llm
 logger = logging.getLogger(__name__)
 
 
+def _log(msg: str) -> None:
+    """管线日志：经标准 logging 输出，入口层用 capture_pipeline_logs 捕获。"""
+    logger.info(msg)
+
+
 # ======================== 数据结构 ========================
 
 @dataclass
@@ -137,26 +142,17 @@ def _generate_batch_leaves(batch_nodes: list, batch_start_idx: int) -> list[Summ
     return results
 
 
-def _generate_leaves(
-    nodes: list,
-    log_list: Optional[list] = None,
-) -> list[SummaryNode]:
+def _generate_leaves(nodes: list) -> list[SummaryNode]:
     """
     为每个 chunk 并发生成叶子摘要（批量模式：每批 SUMMARY_LEAF_BATCH_SIZE 个 chunk
     一次 LLM 调用，批次间通过 ThreadPoolExecutor 并发）。
 
     Args:
         nodes: 分块后的节点列表
-        log_list: 日志列表
 
     Returns:
         SummaryNode 列表，level=1
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     total = len(nodes)
     batch_size = config.SUMMARY_LEAF_BATCH_SIZE
 
@@ -358,20 +354,12 @@ def _generate_parent_summary(
 # ======================== L2: 小节摘要 ========================
 
 
-def _generate_subsection_summaries(
-    leaves: list[SummaryNode],
-    log_list: Optional[list] = None,
-) -> list[SummaryNode]:
+def _generate_subsection_summaries(leaves: list[SummaryNode]) -> list[SummaryNode]:
     """
     L1 → L2：按 (section, subsection) 分组，从原文直接生成小节摘要。
 
     对于无小节的章节（subsection=""），L2 即章节摘要。
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     groups = _group_by_subsection(leaves)
     num_groups = len(groups)
     print(f"    L2 小节摘要：{len(leaves)} 个叶子 → {num_groups} 个小节", flush=True)
@@ -407,21 +395,13 @@ def _generate_subsection_summaries(
 # ======================== L3: 章节摘要 ========================
 
 
-def _generate_chapter_summaries(
-    l2_nodes: list[SummaryNode],
-    log_list: Optional[list] = None,
-) -> list[SummaryNode]:
+def _generate_chapter_summaries(l2_nodes: list[SummaryNode]) -> list[SummaryNode]:
     """
     L2 → L3：按 section 分组，从 L2 的 original_text 重构章节原文生成章节摘要。
 
     无小节章节（该章仅 1 个 L2 且 subsection=""）：
     L2 已覆盖整章，直接返回空列表（L2 本身就是章节级摘要）。
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     # 区分有/无小节章节
     chapter_l2_map: dict[str, list[SummaryNode]] = {}
     for node in l2_nodes:
@@ -512,16 +492,10 @@ def _get_chapter_level_nodes(
 def _generate_book_summary(
     l2_nodes: list[SummaryNode],
     l3_nodes: list[SummaryNode],
-    log_list: Optional[list] = None,
 ) -> list[SummaryNode]:
     """
     L3 → L4：合并所有章节级摘要，生成全书摘要。
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     chapter_nodes = _get_chapter_level_nodes(l2_nodes, l3_nodes)
     if len(chapter_nodes) <= 1:
         if len(chapter_nodes) == 1:
@@ -554,10 +528,7 @@ def _generate_book_summary(
 # ======================== 统一入口 ========================
 
 
-def build_summary_tree(
-    nodes: list,
-    log_list: Optional[list] = None,
-) -> tuple[list[Document], dict[str, dict]]:
+def build_summary_tree(nodes: list) -> tuple[list[Document], dict[str, dict]]:
     """
     构建完整的摘要树并返回可混入主索引的 Document 列表。
 
@@ -569,18 +540,12 @@ def build_summary_tree(
 
     Args:
         nodes: 分块后的原始节点列表
-        log_list: 日志列表
 
     Returns:
         (summary_docs, summary_meta_map)
         - summary_docs: 所有层级摘要节点对应的 Document 列表
         - summary_meta_map: node_id → 摘要元信息（供参考文献阶段使用）
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     total_chunks = len(nodes)
     if total_chunks == 0:
         _log("  无 chunk，跳过摘要树构建")
@@ -601,25 +566,25 @@ def build_summary_tree(
     _log(f"步骤 2.6：构建摘要树（共 {total_chunks} 个 chunk，{len(sections_set)} 个 section）")
 
     # ---- 第 1 步：L1 叶子摘要 ----
-    leaves = _generate_leaves(nodes, log_list)
+    leaves = _generate_leaves(nodes)
 
     # ---- 第 2 步：L2 小节摘要 ----
     if total_chunks > 1:
-        l2_nodes = _generate_subsection_summaries(leaves, log_list)
+        l2_nodes = _generate_subsection_summaries(leaves)
     else:
         l2_nodes = []
         _log("  仅 1 个 chunk，跳过上层摘要构建")
 
     # ---- 第 3 步：L3 章节摘要 ----
     if l2_nodes:
-        l3_nodes = _generate_chapter_summaries(l2_nodes, log_list)
+        l3_nodes = _generate_chapter_summaries(l2_nodes)
     else:
         l3_nodes = []
 
     # ---- 第 4 步：L4 全书摘要 ----
     chapter_nodes = _get_chapter_level_nodes(l2_nodes, l3_nodes)
     if len(chapter_nodes) > 1:
-        l4_nodes = _generate_book_summary(l2_nodes, l3_nodes, log_list)
+        l4_nodes = _generate_book_summary(l2_nodes, l3_nodes)
     else:
         l4_nodes = []
 

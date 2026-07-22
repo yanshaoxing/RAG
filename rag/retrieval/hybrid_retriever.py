@@ -43,7 +43,6 @@ class HybridRetriever(BaseRetriever):
         reranker: Optional[Reranker] = None,
         query_rewriter: Optional[QueryRewriter] = None,
         summary_meta_map: Optional[dict] = None,
-        log_list: Optional[list] = None,
         decomposer=None,
     ):
         super().__init__()
@@ -52,12 +51,11 @@ class HybridRetriever(BaseRetriever):
         self._reranker = reranker
         self._query_rewriter = query_rewriter
         self._summary_meta_map = summary_meta_map or {}
-        self._log_list = log_list
         self._decomposer = decomposer
 
-    def _log(self, msg: str):
-        if self._log_list is not None:
-            self._log_list.append(msg)
+    @staticmethod
+    def _log(msg: str):
+        logger.info(msg)
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         original_query = query_bundle.query_str

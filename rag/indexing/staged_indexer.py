@@ -33,6 +33,11 @@ from rag.graph.graph_constructor import build_graph, load_graph
 logger = logging.getLogger(__name__)
 
 
+def _log(msg: str) -> None:
+    """管线日志：经标准 logging 输出，入口层用 capture_pipeline_logs 捕获。"""
+    logger.info(msg)
+
+
 def tokenize_for_bm25(text: str) -> str:
     """中文分词后空格连接，供 BM25 索引构建和检索使用。"""
     return " ".join(jieba.cut(text))
@@ -92,13 +97,8 @@ def _deserialize_summary_docs(data: list[dict]) -> list[Document]:
 
 # ======================== 各阶段实现 ========================
 
-def _stage_chunk(log_list: Optional[list] = None) -> list:
+def _stage_chunk() -> list:
     """阶段 1：文档分块 → chunks/"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     # 清理旧 chunks（防止残留不完整数据）
     if os.path.exists(config.CHUNKS_DIR):
         shutil.rmtree(config.CHUNKS_DIR)
@@ -128,13 +128,8 @@ def _stage_chunk(log_list: Optional[list] = None) -> list:
     return nodes
 
 
-def _load_chunks(log_list: Optional[list] = None) -> list:
+def _load_chunks() -> list:
     """从 chunks/ 加载分块节点。"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     chunks_path = os.path.join(config.CHUNKS_DIR, "chunks.json")
     with open(chunks_path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -143,17 +138,12 @@ def _load_chunks(log_list: Optional[list] = None) -> list:
     return nodes
 
 
-def _stage_summary(chunk_nodes: list, log_list: Optional[list] = None) -> Tuple[list, dict]:
+def _stage_summary(chunk_nodes: list) -> Tuple[list, dict]:
     """阶段 2：摘要树构建 → summary_tree/"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     print("阶段 2：构建摘要树...", flush=True)
     _log("阶段 2：构建摘要树")
 
-    summary_docs, summary_meta_map = build_summary_tree(chunk_nodes, log_list)
+    summary_docs, summary_meta_map = build_summary_tree(chunk_nodes)
     summary_docs = list(summary_docs)
 
     # 确保目录存在（stage 开始前可能被清理过）
@@ -176,13 +166,8 @@ def _stage_summary(chunk_nodes: list, log_list: Optional[list] = None) -> Tuple[
     return summary_docs, summary_meta_map
 
 
-def _load_summary(log_list: Optional[list] = None) -> Tuple[list, dict]:
+def _load_summary() -> Tuple[list, dict]:
     """从 summary_tree/ 加载摘要节点和元数据。"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     # 加载 summary_meta_map
     map_path = os.path.join(config.SUMMARY_TREE_DIR, "summary_meta_map.json")
     if os.path.exists(map_path):
@@ -205,13 +190,8 @@ def _load_summary(log_list: Optional[list] = None) -> Tuple[list, dict]:
     return summary_docs, summary_meta_map
 
 
-def _stage_bm25(all_nodes: list, log_list: Optional[list] = None) -> BM25Retriever:
+def _stage_bm25(all_nodes: list) -> BM25Retriever:
     """阶段 3：BM25 索引构建 → bm25/"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     print(f"阶段 3：构建 BM25 索引（共 {len(all_nodes)} 个节点）...", flush=True)
     _log(f"阶段 3：构建 BM25 索引（共 {len(all_nodes)} 个节点）")
 
@@ -239,26 +219,16 @@ def _stage_bm25(all_nodes: list, log_list: Optional[list] = None) -> BM25Retriev
     return bm25_retriever
 
 
-def _load_bm25(log_list: Optional[list] = None) -> BM25Retriever:
+def _load_bm25() -> BM25Retriever:
     """从 bm25/ 加载 BM25 检索器。"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     bm25_retriever = BM25Retriever.from_persist_dir(config.BM25_DIR)
     bm25_retriever.similarity_top_k = config.RETRIEVAL_TOP_K
     _log("  BM25 索引已加载")
     return bm25_retriever
 
 
-def _stage_vector(all_nodes: list, log_list: Optional[list] = None) -> VectorStoreIndex:
+def _stage_vector(all_nodes: list) -> VectorStoreIndex:
     """阶段 4：向量索引构建 → vector/"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     _embed_bs = getattr(Settings.embed_model, "embed_batch_size", config.EMBED_BATCH_SIZE)
     _num_batches = (len(all_nodes) + _embed_bs - 1) // _embed_bs
     print(f"阶段 4：构建向量索引（共 {len(all_nodes)} 个节点，batch_size={_embed_bs}，"
@@ -286,11 +256,10 @@ def _stage_vector(all_nodes: list, log_list: Optional[list] = None) -> VectorSto
     _original_embed = Settings.embed_model
     Settings.embed_model = ProgressOllamaEmbedding(
         total_nodes=len(all_nodes),
-        log_list=log_list,
         label="向量索引",
         model_name=getattr(_original_embed, "model_name", config.EMBED_MODEL_NAME),
         base_url=getattr(_original_embed, "base_url", config.EMBED_OLLAMA_BASE_URL),
-        request_timeout=getattr(_original_embed, "request_timeout", config.ANSWER_OLLAMA_TIMEOUT),
+        request_timeout=getattr(_original_embed, "request_timeout", config.EMBED_TIMEOUT),
         embed_batch_size=_embed_bs,
     )
     index = VectorStoreIndex(all_nodes, storage_context=storage_context)
@@ -303,13 +272,8 @@ def _stage_vector(all_nodes: list, log_list: Optional[list] = None) -> VectorSto
     return index
 
 
-def _load_vector(log_list: Optional[list] = None) -> VectorStoreIndex:
+def _load_vector() -> VectorStoreIndex:
     """从 vector/ 加载向量索引（FAISS HNSW）。"""
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     t_start = datetime.now()
 
     faiss_index_path = os.path.join(config.PERSIST_DIR, "default__vector_store.json")
@@ -335,9 +299,7 @@ def _load_vector(log_list: Optional[list] = None) -> VectorStoreIndex:
 
 # ======================== 管线控制器 ========================
 
-def get_or_build_index(
-    log_list: Optional[list] = None,
-) -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict], Optional["PropertyGraphIndex"]]:
+def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict], Optional["PropertyGraphIndex"]]:
     """分阶段索引管线控制器。
 
     按序检查各阶段产物目录，从第一个缺失的阶段开始执行。
@@ -345,11 +307,6 @@ def get_or_build_index(
 
     返回: (向量索引, BM25 检索器, 摘要树元数据映射, 知识图谱索引或 None)
     """
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     # 定义阶段列表：(阶段名, 产物目录, 是否启用)
     stages: List[Tuple[str, str, bool]] = [
         ("分块",       config.CHUNKS_DIR,       True),
@@ -371,17 +328,17 @@ def get_or_build_index(
         print("所有阶段产物已就绪，从磁盘加载...", flush=True)
         _log("所有阶段产物已就绪，从磁盘加载")
 
-        chunk_nodes = _load_chunks(log_list)
+        chunk_nodes = _load_chunks()
 
         if config.SUMMARY_TREE_ENABLED:
-            summary_docs, summary_meta_map = _load_summary(log_list)
+            summary_docs, summary_meta_map = _load_summary()
         else:
             summary_docs, summary_meta_map = [], None
             _log("摘要树未启用，跳过")
 
-        bm25_retriever = _load_bm25(log_list)
-        vector_index = _load_vector(log_list)
-        graph_index = load_graph(log_list)
+        bm25_retriever = _load_bm25()
+        vector_index = _load_vector()
+        graph_index = load_graph()
 
         return vector_index, bm25_retriever, summary_meta_map, graph_index
 
@@ -407,16 +364,16 @@ def get_or_build_index(
 
     # 阶段 0：分块（如果 start_from <= 0 则执行，否则加载缓存）
     if start_from <= 0:
-        chunk_nodes = _stage_chunk(log_list)
+        chunk_nodes = _stage_chunk()
     else:
-        chunk_nodes = _load_chunks(log_list)
+        chunk_nodes = _load_chunks()
 
     # 阶段 1：摘要树
     if config.SUMMARY_TREE_ENABLED:
         if start_from <= 1:
-            summary_docs, summary_meta_map = _stage_summary(chunk_nodes, log_list)
+            summary_docs, summary_meta_map = _stage_summary(chunk_nodes)
         else:
-            summary_docs, summary_meta_map = _load_summary(log_list)
+            summary_docs, summary_meta_map = _load_summary()
     else:
         _log("摘要树未启用，跳过")
 
@@ -427,23 +384,23 @@ def get_or_build_index(
 
     # 阶段 2：BM25 索引
     if start_from <= 2:
-        bm25_retriever = _stage_bm25(all_nodes, log_list)
+        bm25_retriever = _stage_bm25(all_nodes)
     else:
-        bm25_retriever = _load_bm25(log_list)
+        bm25_retriever = _load_bm25()
 
     # 阶段 3：向量索引
     if start_from <= 3:
-        vector_index = _stage_vector(all_nodes, log_list)
+        vector_index = _stage_vector(all_nodes)
     else:
-        vector_index = _load_vector(log_list)
+        vector_index = _load_vector()
 
-    # 阶段 4：知识图谱（使用原始文档独立分块，chunk 更大）
+    # 阶段 4：知识图谱（按节抽取，独立于检索分块）
     if config.GRAPH_ENABLED:
         if start_from <= 4:
             raw_documents = load_documents()
-            graph_index = build_graph(raw_documents, Settings.llm, log_list)
+            graph_index = build_graph(raw_documents, Settings.llm)
         else:
-            graph_index = load_graph(log_list)
+            graph_index = load_graph()
     else:
         _log("知识图谱未启用，跳过")
 

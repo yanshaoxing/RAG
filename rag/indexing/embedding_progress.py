@@ -18,21 +18,17 @@ class ProgressOllamaEmbedding(OllamaEmbedding):
     def __init__(
         self,
         total_nodes: int,
-        log_list: Optional[list] = None,
         label: str = "Embedding",
         **kwargs,
     ):
         super().__init__(**kwargs)
         self._processed = 0
         self._total = total_nodes
-        self._log_list = log_list
         self._label = label
 
     def _log(self, msg: str):
         print(f"    {msg}", flush=True)
         logger.info(msg)
-        if self._log_list is not None:
-            self._log_list.append(msg)
 
     def _get_text_embeddings(self, texts: list[str]) -> list[list[float]]:
         embeddings = super()._get_text_embeddings(texts)

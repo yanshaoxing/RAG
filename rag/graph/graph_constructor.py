@@ -38,6 +38,11 @@ from .validator import Validator
 logger = logging.getLogger(__name__)
 
 
+def _log(msg: str) -> None:
+    """管线日志：经标准 logging 输出，入口层用 capture_pipeline_logs 捕获。"""
+    logger.info(msg)
+
+
 def _prepare_sections_for_graph(documents: list[Document]) -> list[tuple[int, str]]:
     """按节直接送入 LLM，不做分块。"""
     sections = []
@@ -51,7 +56,6 @@ def _prepare_sections_for_graph(documents: list[Document]) -> list[tuple[int, st
 def build_graph(
     documents: list[Document],
     llm,
-    log_list: Optional[list] = None,
     force_rebuild: bool = False,
     resume_from: Optional[int] = None,
 ) -> Optional[PropertyGraphIndex]:
@@ -60,19 +64,12 @@ def build_graph(
     Args:
         documents: 原始 Document 列表
         llm: 用于抽取的 LLM 实例
-        log_list: 日志列表
         force_rebuild: 是否强制删除缓存从头开始
         resume_from: 从第几个 chunk 开始续传
 
     Returns:
         PropertyGraphIndex 实例，失败返回 None
     """
-
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     if not config.GRAPH_ENABLED:
         _log("阶段 5：知识图谱 — 未启用（GRAPH_ENABLED=False）")
         return None
@@ -340,18 +337,12 @@ def build_graph(
     return index
 
 
-def load_graph(log_list: Optional[list] = None) -> Optional[PropertyGraphIndex]:
+def load_graph() -> Optional[PropertyGraphIndex]:
     """从 Kuzu 加载已有的 PropertyGraph 索引。
 
     Returns:
         PropertyGraphIndex 实例，不存在或未启用返回 None
     """
-
-    def _log(msg: str):
-        logger.info(msg)
-        if log_list is not None:
-            log_list.append(msg)
-
     if not config.GRAPH_ENABLED:
         return None
 

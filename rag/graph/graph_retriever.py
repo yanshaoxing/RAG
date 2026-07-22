@@ -59,15 +59,13 @@ class GraphRetriever:
         self,
         graph_index: Optional[PropertyGraphIndex] = None,
         llm=None,
-        log_list: Optional[list] = None,
     ):
         self._graph_index = graph_index
         self._llm = llm
-        self._log_list = log_list
 
-    def _log(self, msg: str):
-        if self._log_list is not None:
-            self._log_list.append(msg)
+    @staticmethod
+    def _log(msg: str):
+        logger.info(msg)
 
     @property
     def is_available(self) -> bool:

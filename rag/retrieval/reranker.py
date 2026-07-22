@@ -25,16 +25,14 @@ class Reranker:
         base_url: str = config.RERANK_BASE_URL,
         model_name: str = config.RERANK_MODEL_NAME,
         timeout: float = config.RERANK_TIMEOUT,
-        log_list: Optional[list] = None,
     ):
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
         self._timeout = timeout
-        self._log_list = log_list
 
-    def _log(self, msg: str):
-        if self._log_list is not None:
-            self._log_list.append(msg)
+    @staticmethod
+    def _log(msg: str):
+        logger.info(msg)
 
     # ---------- 批量重排序 ----------
 
