@@ -25,6 +25,7 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.faiss import FaissVectorStore
 
 from rag import config
+from rag.utils.files import atomic_write_json, mark_stage_done, stage_complete
 from rag.ingestion.preprocessor import load_documents, create_chunking_pipeline
 from rag.indexing.embedding_progress import ProgressOllamaEmbedding
 from rag.summarization.summary_tree import build_summary_tree
@@ -41,6 +42,12 @@ def _log(msg: str) -> None:
 def tokenize_for_bm25(text: str) -> str:
     """中文分词后空格连接，供 BM25 索引构建和检索使用。"""
     return " ".join(jieba.cut(text))
+
+
+# 阶段完成标记 / 原子写入工具（与 graph_constructor 共用）
+_atomic_write_json = atomic_write_json
+_mark_stage_done = mark_stage_done
+_stage_complete = stage_complete
 
 
 # ======================== 序列化 / 反序列化 ========================
@@ -118,11 +125,10 @@ def _stage_chunk() -> list:
     if len(nodes) == 0:
         raise RuntimeError("分块后节点数为 0，请检查文档内容或分块配置")
 
-    # 持久化
+    # 持久化（原子写入 + 完成标记）
     chunks_path = os.path.join(config.CHUNKS_DIR, "chunks.json")
-    serialized = _serialize_nodes(nodes)
-    with open(chunks_path, "w", encoding="utf-8") as f:
-        json.dump(serialized, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(chunks_path, _serialize_nodes(nodes))
+    _mark_stage_done(config.CHUNKS_DIR, num_nodes=len(nodes))
     _log(f"阶段 1：chunks 已持久化到 {chunks_path}")
 
     return nodes
@@ -149,43 +155,40 @@ def _stage_summary(chunk_nodes: list) -> Tuple[list, dict]:
     # 确保目录存在（stage 开始前可能被清理过）
     os.makedirs(config.SUMMARY_TREE_DIR, exist_ok=True)
 
-    # 持久化 summary_meta_map
+    # 持久化（原子写入，两个文件都写完才落完成标记）
     map_path = os.path.join(config.SUMMARY_TREE_DIR, "summary_meta_map.json")
-    with open(map_path, "w", encoding="utf-8") as f:
-        json.dump(summary_meta_map, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(map_path, summary_meta_map)
     _log(f"  摘要树元数据已持久化到 {map_path}")
 
-    # 持久化 summary_nodes
     summary_nodes_path = os.path.join(config.SUMMARY_TREE_DIR, "summary_nodes.json")
-    serialized = _serialize_summary_docs(summary_docs)
-    with open(summary_nodes_path, "w", encoding="utf-8") as f:
-        json.dump(serialized, f, ensure_ascii=False, indent=2)
+    _atomic_write_json(summary_nodes_path, _serialize_summary_docs(summary_docs))
     _log(f"  摘要节点已持久化到 {summary_nodes_path}（共 {len(summary_docs)} 个）")
 
+    _mark_stage_done(config.SUMMARY_TREE_DIR, num_summary_docs=len(summary_docs))
     _log(f"阶段 2：摘要树构建完成，新增 {len(summary_docs)} 个摘要节点")
     return summary_docs, summary_meta_map
 
 
 def _load_summary() -> Tuple[list, dict]:
     """从 summary_tree/ 加载摘要节点和元数据。"""
-    # 加载 summary_meta_map
+    # 完成标记保证两个文件都存在；缺失说明产物损坏，显式报错而非静默返回空
     map_path = os.path.join(config.SUMMARY_TREE_DIR, "summary_meta_map.json")
-    if os.path.exists(map_path):
-        with open(map_path, "r", encoding="utf-8") as f:
-            summary_meta_map = json.load(f)
-        _log(f"  已加载 {len(summary_meta_map)} 条摘要树元数据")
-    else:
-        summary_meta_map = {}
-
-    # 加载 summary_nodes
     summary_nodes_path = os.path.join(config.SUMMARY_TREE_DIR, "summary_nodes.json")
-    if os.path.exists(summary_nodes_path):
-        with open(summary_nodes_path, "r", encoding="utf-8") as f:
-            data = json.load(f)
-        summary_docs = _deserialize_summary_docs(data)
-        _log(f"  已加载 {len(summary_docs)} 个摘要节点")
-    else:
-        summary_docs = []
+    for p in (map_path, summary_nodes_path):
+        if not os.path.exists(p):
+            raise RuntimeError(
+                f"摘要树产物缺失: {p}。"
+                f"请删除 {config.SUMMARY_TREE_DIR} 后重新运行以重建该阶段。"
+            )
+
+    with open(map_path, "r", encoding="utf-8") as f:
+        summary_meta_map = json.load(f)
+    _log(f"  已加载 {len(summary_meta_map)} 条摘要树元数据")
+
+    with open(summary_nodes_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    summary_docs = _deserialize_summary_docs(data)
+    _log(f"  已加载 {len(summary_docs)} 个摘要节点")
 
     return summary_docs, summary_meta_map
 
@@ -212,6 +215,7 @@ def _stage_bm25(all_nodes: list) -> BM25Retriever:
 
     os.makedirs(config.BM25_DIR, exist_ok=True)
     bm25_retriever.persist(config.BM25_DIR)
+    _mark_stage_done(config.BM25_DIR, num_nodes=len(bm25_nodes))
 
     t_elapsed = (datetime.now() - t_start).total_seconds()
     _log(f"  BM25 索引构建完成，持久化到 {config.BM25_DIR}，耗时 {t_elapsed:.1f}s")
@@ -265,6 +269,7 @@ def _stage_vector(all_nodes: list) -> VectorStoreIndex:
     index = VectorStoreIndex(all_nodes, storage_context=storage_context)
     Settings.embed_model = _original_embed
     index.storage_context.persist(persist_dir=config.PERSIST_DIR)
+    _mark_stage_done(config.PERSIST_DIR, num_nodes=len(all_nodes))
 
     t_elapsed = (datetime.now() - t_start).total_seconds()
     _log(f"  向量索引构建完成，持久化到 {config.PERSIST_DIR}，耗时 {t_elapsed:.1f}s")
@@ -277,11 +282,13 @@ def _load_vector() -> VectorStoreIndex:
     t_start = datetime.now()
 
     faiss_index_path = os.path.join(config.PERSIST_DIR, "default__vector_store.json")
-    if os.path.exists(faiss_index_path):
-        faiss_index = faiss.read_index(faiss_index_path)
-    else:
-        faiss_index = faiss.IndexHNSW(faiss.IndexFlatIP(config.EMBED_VECTOR_DIM), config.HNSW_M)
-        faiss_index.hnsw.efConstruction = config.HNSW_EF_CONSTRUCTION
+    if not os.path.exists(faiss_index_path):
+        # 完成标记存在但索引文件缺失 → 产物损坏，显式报错而非新建空索引
+        raise RuntimeError(
+            f"向量索引文件缺失: {faiss_index_path}。"
+            f"请删除 {config.PERSIST_DIR} 后重新运行以重建该阶段。"
+        )
+    faiss_index = faiss.read_index(faiss_index_path)
 
     if hasattr(faiss_index, 'hnsw'):
         faiss_index.hnsw.efSearch = config.HNSW_EF_SEARCH
@@ -316,15 +323,16 @@ def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict
         ("知识图谱",   config.GRAPH_DB_DIR,     config.GRAPH_ENABLED),
     ]
 
-    # 找到第一个缺失的【启用】阶段
+    # 找到第一个未完成的【启用】阶段（以 _DONE.json 完成标记为准，
+    # 目录存在但无标记视为中断残留，需要重建）
     start_from = None
     for i, (name, path, enabled) in enumerate(stages):
-        if enabled and not os.path.exists(path):
+        if enabled and not _stage_complete(path):
             start_from = i
             break
 
     if start_from is None:
-        # ---- 全部存在：从磁盘加载 ----
+        # ---- 全部完成：从磁盘加载 ----
         print("所有阶段产物已就绪，从磁盘加载...", flush=True)
         _log("所有阶段产物已就绪，从磁盘加载")
 
@@ -343,9 +351,9 @@ def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict
         return vector_index, bm25_retriever, summary_meta_map, graph_index
 
     # ---- 需要重建：从 start_from 开始 ----
-    print(f"检测到阶段「{stages[start_from][0]}」产物缺失，"
+    print(f"检测到阶段「{stages[start_from][0]}」未完成（产物缺失或中断残留），"
           f"从该阶段开始重建...", flush=True)
-    _log(f"阶段「{stages[start_from][0]}」产物缺失，从该阶段开始重建")
+    _log(f"阶段「{stages[start_from][0]}」未完成，从该阶段开始重建")
 
     # 删除 start_from 及之后所有【启用】阶段的目录
     for i in range(start_from, len(stages)):

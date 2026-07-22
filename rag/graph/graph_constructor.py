@@ -25,6 +25,7 @@ from llama_index.graph_stores.kuzu import KuzuPropertyGraphStore
 
 from rag import config
 from rag.llm.factory import create_validate_llm
+from rag.utils.files import mark_stage_done
 
 from .cache import GraphCache
 from .canonicalizer import Canonicalizer
@@ -330,6 +331,9 @@ def build_graph(
             _log(f"    {tname}: {tcount} 次")
 
     cache.close()
+
+    # 写入阶段完成标记（staged_indexer 的完成检测以此为准）
+    mark_stage_done(config.GRAPH_DB_DIR, num_entities=len(entity_nodes_map), num_relations=len(rel_objects))
 
     _log(f"阶段 5：知识图谱构建完成，持久化到 {config.GRAPH_DB_DIR}")
     _log(f"  共 {len(all_relations)} 条三元组，{len(entity_nodes_map)} 实体，{len(rel_objects)} 关系")
