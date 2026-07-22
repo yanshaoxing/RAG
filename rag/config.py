@@ -43,6 +43,8 @@ DAVY_CERT_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "sha2ro
 DAVY_API_KEY = os.environ.get("RAG_DAVY_API_KEY", "ZmU0Nt7kbSGH8SEIwvFCSVYwGDiTSQNMezbfLZW_3Aw")
 DAVY_TIMEOUT = 120.0
 DAVY_TEMPERATURE = 0.2
+DAVY_MAX_RETRIES = 3               # 429/5xx/网络错误的最大重试次数（指数退避，尊重 Retry-After）
+DAVY_RETRY_BASE_DELAY = 2.0        # 重试基础等待秒数（第 n 次重试等待 base * 2^n）
 
 # ============================================================
 # 查询重写（三路策略：NL改写 + HyDE + BM25关键词扩展）
@@ -216,6 +218,8 @@ CHUNK_OVERLAP = 102                 # 单侧 overlap 上限（字符数），chu
 # ============================================================
 SUMMARY_TREE_ENABLED = True       # 开关：启用层次化摘要树
 SUMMARY_LLM_PROVIDER = "davy"     # 生成摘要使用的 LLM："ollama" | "davy"
+SUMMARY_OLLAMA_MODEL = "qwen3.5:9b"   # provider=ollama 时的摘要模型
+SUMMARY_OLLAMA_TIMEOUT = 300.0        # provider=ollama 时的摘要请求超时
 SUMMARY_GROUP_SIZE = 10           # L2→L3 每组合并的章节数
 SUMMARY_PARENT_RATIO = 0.20       # L2 小节摘要字数 = 输入文本总字数 × 此比例
 SUMMARY_CHAPTER_RATIO = 0.15      # L3 章节摘要字数 = 输入文本总字数 × 此比例
