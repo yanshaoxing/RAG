@@ -203,10 +203,14 @@ def _stage_bm25(all_nodes: list) -> BM25Retriever:
     for node in all_nodes:
         section = node.metadata.get("section", "")
         combined = f"{section} {node.text}" if section else node.text
-        # 分词版本用于 BM25 索引，原始文本存入 metadata 供后续恢复
+        # 分词版本用于 BM25 索引，原始文本存入 metadata 供后续恢复。
+        # 注意：摘要节点已在 summary_tree 中把"原始出处文本"写入 original_text
+        # 供 rerank/展示使用，此处不能覆盖（setdefault 保留已有值）
+        meta = dict(node.metadata)
+        meta.setdefault("original_text", combined)
         n = node.model_copy(update={
             "text": tokenize_for_bm25(combined),
-            "metadata": {**dict(node.metadata), "original_text": combined},
+            "metadata": meta,
         })
         bm25_nodes.append(n)
 

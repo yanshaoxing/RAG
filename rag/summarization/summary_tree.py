@@ -41,8 +41,9 @@ class SummaryNode:
     file_name: str = ""                    # 所属文件名
     section: str = ""                      # 所属章节
     subsection: str = ""                   # 所属小节编号
-    chunk_range: tuple[int, int] = (0, 0)  # 覆盖的 chunk 索引范围 [start, end)
+    chunk_range: tuple[int, int] = (0, 0)  # 覆盖的 chunk 索引范围 [start, end]（闭区间）
     original_text: str = ""                # 原始文本（L1=chunk原文, L2=小节原文, L3=章节原文）
+    is_fallback: bool = False              # True=LLM 失败后用原文截断冒充的降级摘要
 
 
 @dataclass
@@ -126,6 +127,8 @@ def _generate_batch_leaves(batch_nodes: list, batch_start_idx: int) -> list[Summ
         fname = node.metadata.get("file_name", "")
         section = node.metadata.get("section", "")
         subsection = node.metadata.get("subsection", "")
+        # LLM 失败/漏答时用原文截断兜底，并显式标记为降级摘要（可统计、可事后定位）
+        is_fallback = not leaf_texts[i]
         leaf_text = leaf_texts[i] if leaf_texts[i] else (node.text[:100] + "...")
 
         results.append(SummaryNode(
@@ -138,6 +141,27 @@ def _generate_batch_leaves(batch_nodes: list, batch_start_idx: int) -> list[Summ
             subsection=subsection,
             chunk_range=(chunk_idx, chunk_idx),
             original_text=node.text,  # L1 保留原始 chunk 文本
+            is_fallback=is_fallback,
+        ))
+    return results
+
+
+def _fallback_batch_leaves(batch_nodes: list, batch_start_idx: int) -> list[SummaryNode]:
+    """批次任务整体失败时的兜底：全部用原文截断生成降级叶子摘要（不调 LLM）。"""
+    results: list[SummaryNode] = []
+    for i, node in enumerate(batch_nodes):
+        chunk_idx = batch_start_idx + i
+        results.append(SummaryNode(
+            text=node.text[:100] + "...",
+            node_id=f"summary_leaf_{node.node_id}",
+            level=1,
+            child_ids=[node.node_id],
+            file_name=node.metadata.get("file_name", ""),
+            section=node.metadata.get("section", ""),
+            subsection=node.metadata.get("subsection", ""),
+            chunk_range=(chunk_idx, chunk_idx),
+            original_text=node.text,
+            is_fallback=True,
         ))
     return results
 
@@ -195,7 +219,13 @@ def _generate_leaves(nodes: list) -> list[SummaryNode]:
             completed_batches = 0
             for future in as_completed(future_to_batch):
                 batch_start = future_to_batch[future]
-                batch_results = future.result()
+                try:
+                    batch_results = future.result()
+                except Exception as e:
+                    # 单个 worker 崩溃不中止整个摘要阶段：该批次降级为原文截断
+                    logger.exception("叶子摘要批次任务异常 (batch_start=%d): %s", batch_start, e)
+                    batch_nodes = next(bn for bn, bs in batch_tasks if bs == batch_start)
+                    batch_results = _fallback_batch_leaves(batch_nodes, batch_start)
                 for i, sn in enumerate(batch_results):
                     summary_nodes[batch_start + i] = sn
                 completed_batches += 1
@@ -273,8 +303,6 @@ def _generate_parent_summary(
     Returns:
         父级 SummaryNode
     """
-    llm = create_summary_llm()
-
     # 收集所有孙节点 id 和 chunk_range
     all_child_ids: list[str] = []
     min_chunk = float("inf")
@@ -318,8 +346,10 @@ def _generate_parent_summary(
     else:
         chars_limit = max(200, int(len(source_text) * config.SUMMARY_PARENT_RATIO))
 
-    # 生成父级摘要
+    # 生成父级摘要（LLM 失败时用原文截断兜底，并显式标记为降级摘要）
+    parent_text = ""
     try:
+        llm = create_summary_llm()
         if use_original:
             prompt = config.SUMMARY_PARENT_FROM_RAW_PROMPT.format(
                 max_chars=chars_limit,
@@ -332,9 +362,12 @@ def _generate_parent_summary(
                 child_summaries=source_text,
             )
         resp = llm.complete(prompt)
-        parent_text = resp.text.strip() or source_text[:200]
+        parent_text = resp.text.strip()
     except Exception as e:
         logger.warning("生成父级摘要失败 (level=%d): %s", level, e)
+
+    is_fallback = not parent_text
+    if is_fallback:
         parent_text = source_text[:200] + "..."
 
     parent_id = f"summary_L{level}_{int(min_chunk)}_{int(max_chunk)}"
@@ -348,6 +381,7 @@ def _generate_parent_summary(
         subsection=subsection,
         chunk_range=(int(min_chunk), int(max_chunk)),
         original_text=source_text,
+        is_fallback=is_fallback,
     )
 
 
@@ -386,7 +420,12 @@ def _generate_subsection_summaries(leaves: list[SummaryNode]) -> list[SummaryNod
                 for g in groups
             }
             for future in as_completed(future_to_group):
-                l2_nodes.append(future.result())
+                try:
+                    l2_nodes.append(future.result())
+                except Exception as e:
+                    g = future_to_group[future]
+                    logger.exception("L2 小节摘要任务异常 (section=%s §%s): %s",
+                                     g.section, g.subsection, e)
 
     _log(f"  L2 小节摘要生成完成，共 {len(l2_nodes)} 条")
     return l2_nodes
@@ -450,10 +489,57 @@ def _generate_chapter_summaries(l2_nodes: list[SummaryNode]) -> list[SummaryNode
                 for g in chapters_for_l3
             }
             for future in as_completed(future_to_group):
-                l3_nodes.append(future.result())
+                try:
+                    l3_nodes.append(future.result())
+                except Exception as e:
+                    g = future_to_group[future]
+                    logger.exception("L3 章节摘要任务异常 (section=%s): %s", g.section, e)
 
     _log(f"  L3 章节摘要生成完成，共 {len(l3_nodes)} 条")
     return l3_nodes
+
+
+# ======================== 章节排序 ========================
+
+_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+_CN_UNITS = {"十": 10, "百": 100, "千": 1000}
+
+
+def _cn_numeral_to_int(text: str) -> int:
+    """把中文数字（如 "十二"、"二十三"、"一百零五"）转为整数。无法解析返回 0。"""
+    result = 0
+    current = 0
+    for ch in text:
+        if ch in _CN_DIGITS:
+            current = _CN_DIGITS[ch]
+        elif ch in _CN_UNITS:
+            unit = _CN_UNITS[ch]
+            result += (current or 1) * unit   # "十二" 的 "十" 前无数字 → 按 1 处理
+            current = 0
+        else:
+            return 0
+    return result + current
+
+
+def _section_order(node: SummaryNode) -> tuple[int, int]:
+    """提取章节序号用于排序，兼容"第十二回"等中文数字与阿拉伯数字。
+
+    返回 (章节序号, 起始 chunk) 二元组，chunk 起点兜底保证排序确定。
+    """
+    order = 0
+    m = re.search(r"第([零一二两三四五六七八九十百千]+)[回章节篇]", node.section)
+    if m:
+        order = _cn_numeral_to_int(m.group(1))
+    if order == 0:
+        m = re.search(r"^([一二两三四五六七八九十]{1,3})、", node.section)
+        if m:
+            order = _cn_numeral_to_int(m.group(1))
+    if order == 0:
+        m = re.search(r"(\d+)", node.section)
+        if m:
+            order = int(m.group(1))
+    return (order, node.chunk_range[0])
 
 
 # ======================== L4: 全书摘要 ========================
@@ -502,11 +588,7 @@ def _generate_book_summary(
             _log("  L4 全书摘要：仅 1 个章节级节点，跳过")
         return []
 
-    # 按章节顺序排序
-    # 提取章节序号用于排序
-    def _section_order(node: SummaryNode) -> int:
-        m = re.search(r"(\d+)", node.section)
-        return int(m.group(1)) if m else 0
+    # 按章节顺序排序（as_completed 完成顺序不定，必须显式排序保证两次构建产物一致）
     chapter_nodes.sort(key=_section_order)
 
     group = SummaryGroup(
@@ -592,6 +674,15 @@ def build_summary_tree(nodes: list) -> tuple[list[Document], dict[str, dict]]:
     _log(f"  摘要树构建完成：L1 {len(leaves)} + L2 {len(l2_nodes)} + L3 {len(l3_nodes)} "
          f"+ L4 {len(l4_nodes)} = 共 {len(all_summary_nodes)} 个摘要节点")
 
+    # 统计降级摘要（LLM 失败后用原文截断冒充的），显式暴露而非静默污染索引
+    fallback_count = sum(1 for sn in all_summary_nodes if sn.is_fallback)
+    if fallback_count > 0:
+        fallback_ids = [sn.node_id for sn in all_summary_nodes if sn.is_fallback]
+        logger.warning("有 %d 个摘要为降级产物（原文截断），建议检查后重建: %s",
+                       fallback_count, fallback_ids[:10])
+        _log(f"  ⚠️ 其中 {fallback_count} 个为降级摘要（LLM 失败，用原文截断代替，"
+             f"已在 metadata 中标记 summary_fallback）")
+
     # ---- 第 5 步：转为 Document 列表 + 元信息映射 ----
     summary_docs: list[Document] = []
     summary_meta_map: dict[str, dict] = {}
@@ -627,6 +718,7 @@ def build_summary_tree(nodes: list) -> tuple[list[Document], dict[str, dict]]:
                 "section": sn.section,
                 "subsection": sn.subsection,
                 "is_summary": True,
+                "summary_fallback": sn.is_fallback,
             },
             doc_id=sn.node_id,
         )
