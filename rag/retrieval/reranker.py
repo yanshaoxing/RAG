@@ -38,8 +38,12 @@ class Reranker:
 
     # ---------- 批量重排序 ----------
 
-    def rerank(self, query: str, documents: list[str], top_k: int) -> list[tuple[int, float]]:
-        """对文档列表重排序，返回 [(原始索引, 分数), ...]，按分数降序。"""
+    def rerank(self, query: str, documents: list[str], top_k: int) -> Optional[list[tuple[int, float]]]:
+        """对文档列表重排序，返回 [(原始索引, 分数), ...]，按分数降序。
+
+        调用失败时返回 None（降级信号），由调用方回退到 RRF 顺序，
+        不再返回全 0 分数（全 0 会破坏下游按分数排序/去重的逻辑）。
+        """
         if not documents:
             return []
 
@@ -64,20 +68,28 @@ class Reranker:
                     pass
                 logger.warning(f"Reranker HTTP {resp.status_code}: {detail}")
                 self._log(f"步骤 3.4：重排序 — HTTP {resp.status_code}，降级为 RRF 顺序")
-                return [(i, 0.0) for i in range(min(top_k, len(documents)))]
+                return None
 
             data = resp.json()
             results = data.get("results", [])
             if not results:
                 logger.warning("Reranker 返回空 results，降级")
                 self._log("步骤 3.4：重排序 — 返回空 results，降级为 RRF 顺序")
-                return [(i, 0.0) for i in range(min(top_k, len(documents)))]
+                return None
 
             scores: list[tuple[int, float]] = []
             for item in results:
-                idx = item.get("index", 0)
+                idx = item.get("index")
+                # 响应缺 index 字段时跳过该条，避免默认 0 导致 0 号文档被重复返回
+                if idx is None or not (0 <= idx < len(documents)):
+                    continue
                 score = item.get("relevance_score", 0.0)
                 scores.append((idx, score))
+
+            if not scores:
+                logger.warning("Reranker 返回结果均无有效 index，降级")
+                self._log("步骤 3.4：重排序 — 返回结果无有效 index，降级为 RRF 顺序")
+                return None
 
             scores.sort(key=lambda x: x[1], reverse=True)
             self._log(
@@ -88,4 +100,4 @@ class Reranker:
         except Exception as e:
             logger.warning(f"Reranker 调用失败: {e}，降级")
             self._log(f"步骤 3.4：重排序 — 调用失败 ({e})，降级为 RRF 顺序")
-            return [(i, 0.0) for i in range(min(top_k, len(documents)))]
+            return None

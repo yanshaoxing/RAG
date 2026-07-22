@@ -123,15 +123,16 @@ class GraphRetriever:
 
             for entity in entities[: config.GRAPH_RETRIEVAL_TOP_K]:
                 try:
-                    # 使用通用 MATCH（不指定节点 Label），适配 Schema 多类型
+                    # 使用通用 MATCH（不指定节点 Label），适配 Schema 多类型；
+                    # 实体名通过参数传递，避免含引号等特殊字符时注入/报错
                     query_str = (
                         f"MATCH (a)-[r]->(b) "
-                        f"WHERE a.name CONTAINS '{entity}' OR b.name CONTAINS '{entity}' "
+                        f"WHERE a.name CONTAINS $entity OR b.name CONTAINS $entity "
                         f"RETURN a.name AS subject, r.label AS predicate, b.name AS object, "
                         f"       r.description AS description, r.chunk_id AS chunk_id "
-                        f"LIMIT {config.GRAPH_RETRIEVAL_MAX_TRIPLES}"
+                        f"LIMIT {int(config.GRAPH_RETRIEVAL_MAX_TRIPLES)}"
                     )
-                    result = graph_store.structured_query(query_str)
+                    result = graph_store.structured_query(query_str, param_map={"entity": entity})
                     if result:
                         for row in result:
                             triples.append({

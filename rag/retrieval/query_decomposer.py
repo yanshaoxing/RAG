@@ -93,7 +93,12 @@ class QueryDecomposer:
         prompt = config.DECOMPOSE_CLASSIFY_PROMPT.format(query=query)
         try:
             response = self._call_llm(prompt)
-            return "是" in response or "yes" in response.lower()
+            # 前缀匹配：LLM 回答"不是"时也包含"是"字，不能用子串判断。
+            # 无法识别时保守返回 False（不拆解），避免误拆放大延迟。
+            answer = response.strip().lstrip("：:。.\"'“”「」 ")
+            if answer.startswith("否") or answer.startswith("不"):
+                return False
+            return answer.startswith("是") or answer.lower().startswith("yes")
         except Exception as e:
             logger.warning(f"复杂度分类 LLM 调用失败: {e}")
             return False

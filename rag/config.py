@@ -1,5 +1,9 @@
 """
 全局配置 —— 按模块分类，可选功能均有独立开关。
+
+内网端点与密钥支持环境变量覆盖（未设置时使用默认值）：
+  RAG_EMBED_OLLAMA_BASE_URL / RAG_DAVY_BASE_URL / RAG_DAVY_API_KEY
+  RAG_RERANK_BASE_URL / RAG_GRAPH_VALIDATE_LLM_BASE_URL / RAG_DEBUG
 """
 
 import os
@@ -8,7 +12,8 @@ import os
 # Embedding 模型
 # ============================================================
 EMBED_MODEL_NAME = "qwen3-embedding:8b"
-EMBED_OLLAMA_BASE_URL = "http://10.245.100.186:12434"   # 远程 Ollama 服务地址
+# 远程 Ollama 服务地址
+EMBED_OLLAMA_BASE_URL = os.environ.get("RAG_EMBED_OLLAMA_BASE_URL", "http://10.245.100.186:12434")
 EMBED_BATCH_SIZE = 512
 EMBED_VECTOR_DIM = 4096            # qwen3-embedding:8b 输出维度（用于 FAISS）
 
@@ -31,11 +36,10 @@ ANSWER_OLLAMA_TEMPERATURE = 0.2
 ANSWER_OLLAMA_TIMEOUT = 300.0
 
 # --- Davy 云端连接（answer / rewrite 共用） ---
-DAVY_BASE_URL = "https://davy.labs.lenovo.com:5000/v1"
+DAVY_BASE_URL = os.environ.get("RAG_DAVY_BASE_URL", "https://davy.labs.lenovo.com:5000/v1")
 DAVY_MODEL_NAME = "nemotron-3-ultra"        # 当前使用的主模型
-DAVY_MODEL_NAME_GPT_OSS = "gpt-oss-120b"       # 备选模型（原主模型，保留）
 DAVY_CERT_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "sha2rootca-ca_subca1.cer")
-DAVY_API_KEY = "ZmU0Nt7kbSGH8SEIwvFCSVYwGDiTSQNMezbfLZW_3Aw"
+DAVY_API_KEY = os.environ.get("RAG_DAVY_API_KEY", "ZmU0Nt7kbSGH8SEIwvFCSVYwGDiTSQNMezbfLZW_3Aw")
 DAVY_TIMEOUT = 120.0
 DAVY_TEMPERATURE = 0.2
 
@@ -194,7 +198,7 @@ DECOMPOSE_PROMPT = (
 # 重排序（bge-reranker-v2-m3：通过 vLLM /v1/rerank 端点调用）
 # ============================================================
 RERANK_ENABLED = True            # 开关
-RERANK_BASE_URL = "http://10.245.100.186:12345"
+RERANK_BASE_URL = os.environ.get("RAG_RERANK_BASE_URL", "http://10.245.100.186:12345")
 RERANK_MODEL_NAME = "bge_reranker_v2_m3"
 RERANK_TIMEOUT = 30.0
 RERANK_TEXT_MAX_LENGTH = 8192     # 送入 reranker 的文本最大长度（bge-reranker-v2-m3 最大 8192 tokens）
@@ -346,7 +350,7 @@ GRAPH_EXTRACT_BATCH_SIZE = 5          # 每批处理的 chunk 数
 GRAPH_VALIDATE_LLM_PROVIDER = "davy"    # "ollama" | "davy"
 GRAPH_VALIDATE_DAVY_MODEL = "gpt-oss-120b"  # 校验用 Davy 模型（与原主模型不同，交叉校验）
 GRAPH_VALIDATE_LLM_MODEL = "qwen3.6:27b"  # 校验用 ollama 模型（仅 provider=ollama 时生效）
-GRAPH_VALIDATE_LLM_BASE_URL = "http://10.245.100.186:12434"
+GRAPH_VALIDATE_LLM_BASE_URL = os.environ.get("RAG_GRAPH_VALIDATE_LLM_BASE_URL", "http://10.245.100.186:12434")
 GRAPH_VALIDATE_LLM_TIMEOUT = 3600.0  # 1 小时，基本等于无限等待
 GRAPH_VALIDATE_LLM_TEMPERATURE = 0.1
 
@@ -443,4 +447,5 @@ QA_TEMPLATE_STR = (
 # ============================================================
 # 调试
 # ============================================================
-DEBUG = True                      # 总调试开关：控制是否输出各步骤的 top-3/top-5 详情
+# 总调试开关：控制是否输出各步骤的 top-3/top-5 详情（环境变量 RAG_DEBUG=1 可开启）
+DEBUG = os.environ.get("RAG_DEBUG", "0").lower() in ("1", "true", "yes")

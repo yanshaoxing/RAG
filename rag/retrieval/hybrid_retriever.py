@@ -91,11 +91,13 @@ class HybridRetriever(BaseRetriever):
         # 路径 C：关键词 → BM25 检索（关键词已是分词后形式，直接送入）
         bm25_kw = self._bm25_retriever.retrieve(QueryBundle(kw_string))
 
-        # BM25 索引文本是分词后的，检索后恢复原始文本
+        # BM25 索引文本是分词后的，检索后恢复原始文本。
+        # 注意：docstore 中的节点是共享对象（Streamlit 下跨会话复用），
+        # 必须用副本替换而非就地改写。
         for n in bm25_kw:
             orig = n.metadata.get("original_text")
             if orig and n.node.text != orig:
-                n.node.text = orig
+                n.node = n.node.model_copy(update={"text": orig})
 
         self._log(
             f"步骤 3.2：三路检索 — 向量(NL) {len(vec_nl)} 条, "
@@ -291,7 +293,7 @@ class HybridRetriever(BaseRetriever):
         self, query: str, sorted_ids: list[str],
         node_id_to_node: dict, node_id_to_score: dict,
     ) -> Optional[list[NodeWithScore]]:
-        """执行重排序，返回 None 表示跳过。"""
+        """执行重排序，返回 None 表示跳过或降级（由调用方回退到 RRF top-k）。"""
         if self._reranker is None:
             return None
 
@@ -300,6 +302,9 @@ class HybridRetriever(BaseRetriever):
         candidate_texts = [_safe_text(n)[: config.RERANK_TEXT_MAX_LENGTH] for n in candidate_nodes]
 
         reranked = self._reranker.rerank(query=query, documents=candidate_texts, top_k=config.FINAL_TOP_K)
+        if reranked is None:
+            # reranker 降级：保留 RRF 分数，走无 reranker 的 top-k 路径
+            return None
         self._log(
             f"步骤 3.4：重排序 — RRF 融合 {len(sorted_ids)} 个 → "
             f"候选池 {len(candidate_ids)} 条 → 最终取 top-{len(reranked)}"

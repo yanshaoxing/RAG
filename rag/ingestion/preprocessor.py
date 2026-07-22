@@ -155,6 +155,11 @@ def _split_body_by_subsections(body: str) -> list[dict]:
         return [{"subsection": "", "content": body}]
 
     subs = []
+    # 章节标题与第一个小节标记之间的正文不能丢弃（否则该部分不可检索、不进摘要和图谱）
+    preamble = body[: sub_matches[0].start()].strip()
+    if preamble:
+        subs.append({"subsection": "", "content": preamble})
+
     for i, sm in enumerate(sub_matches):
         sub_label = re.search(r"\d+", sm.group()).group()
         sub_start = sm.end()

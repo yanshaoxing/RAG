@@ -125,11 +125,13 @@ class QueryRewriter:
 
         禁用或全部失败时返回 (原始查询, 原始查询, 原始查询)。
         """
-        if not self._enabled:
-            return query, query, query
-
-        # ---- 阶段 0：术语映射 ----
+        # ---- 阶段 0：术语映射（纯字符串替换，不依赖 LLM，禁用改写时也执行） ----
         mapped, term_log = self._apply_term_map(query)
+
+        if not self._enabled:
+            if term_log:
+                self._log(f"步骤 3.1：查询重写 — 未启用（术语映射: {', '.join(term_log)}）")
+            return mapped, mapped, mapped
 
         # ---- 阶段 1：三路 LLM 改写 ----
         nl_query = self._generate_nl(mapped)
