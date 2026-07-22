@@ -54,6 +54,120 @@ def _prepare_sections_for_graph(documents: list[Document]) -> list[tuple[int, st
     return sections
 
 
+def _process_one_chunk(
+    idx: int,
+    text: str,
+    cache: GraphCache,
+    extractor: Extractor,
+    validator: Validator,
+    merger: DescriptionMerger,
+    canonicalizer: Canonicalizer,
+    metrics: MetricsCollector,
+    global_entity_descriptions: dict[str, str],
+    global_relation_map: dict[tuple, RelModel],
+    all_known_entities: list[str],
+    _log,
+) -> None:
+    """处理单个 chunk：抽取 → 校验 → 归一化 → 描述合并 → 入缓存。"""
+    cache.mark_chunk_processing(idx, text)
+
+    # 抽取
+    result = extractor.extract(text, idx)
+    if result is None:
+        _log(f"  ⚠️ chunk #{idx}: 抽取失败")
+        cache.mark_chunk_failed(idx)
+        metrics.record_chunk_failed()
+        return
+
+    if result.is_empty:
+        # 只有实体、没有关系：保存实体描述并标记完成，
+        # 不再标记失败（失败会导致每次续跑都重抽，实体描述被反复丢弃）
+        if result.entities:
+            cache.save_entities(result.entities)
+            metrics.record_entity(len(result.entities))
+            _log(f"  ⚠️ chunk #{idx}: 无关系，已保存 {len(result.entities)} 个实体")
+        else:
+            _log(f"  ⚠️ chunk #{idx}: 未抽取到实体和关系")
+        cache.mark_chunk_completed(idx)
+        metrics.record_chunk_success()
+        return
+
+    # 校验
+    validated_relations = validator.validate(result.relations, text)
+    filtered_count = len(result.relations) - len(validated_relations)
+    if filtered_count > 0:
+        metrics.record_filtered_by_llm(filtered_count)
+
+    if not validated_relations:
+        # 关系全部被校验过滤：实体描述仍然保留，chunk 视为已完成
+        if result.entities:
+            cache.save_entities(result.entities)
+            metrics.record_entity(len(result.entities))
+        _log(f"  ⚠️ chunk #{idx}: 关系全部被校验过滤")
+        cache.mark_chunk_completed(idx)
+        metrics.record_chunk_success()
+        return
+
+    # 先把本 chunk 的实体入库 —— update_entity_canonical 才能同时
+    # 修正本 chunk 实体行的 canonical 映射（此前先归一化后入库，映射丢失）
+    if result.entities:
+        cache.save_entities(result.entities)
+
+    # 合并描述 + 规范化实体
+    new_relations: list[RelModel] = []
+    for rel in validated_relations:
+        # 保存原始名称（用于在 result.entities 中查找 description）
+        orig_subj = rel.subject
+        orig_obj = rel.object
+
+        # 实体规范化
+        for orig_name in [orig_subj, orig_obj]:
+            if orig_name in all_known_entities:
+                continue
+            canonical = canonicalizer.canonicalize(orig_name, all_known_entities)
+            if canonical and canonical != orig_name:
+                cache.update_entity_canonical(orig_name, canonical)
+                metrics.record_canonicalized()
+                if rel.subject == orig_name:
+                    rel.subject = canonical
+                if rel.object == orig_name:
+                    rel.object = canonical
+            else:
+                # 真正的新实体：加入已知列表，后续 chunk 的归一化才能参照它
+                all_known_entities.append(orig_name)
+
+        # Description 合并（用原始名称在 result.entities 中查找）
+        for orig_name, final_name in [(orig_subj, rel.subject), (orig_obj, rel.object)]:
+            new_desc = ""
+            for ent in result.entities:
+                if ent.name == orig_name:
+                    new_desc = ent.description
+                    break
+
+            if new_desc and len(new_desc) >= 5:
+                existing_desc = global_entity_descriptions.get(final_name, "")
+                merged_desc = merger.merge(existing_desc, new_desc, final_name)
+                global_entity_descriptions[final_name] = merged_desc
+                cache.update_entity_description(final_name, merged_desc)
+                if existing_desc and merged_desc != existing_desc:
+                    metrics.record_merged_description()
+
+        # 去重
+        if rel.triple_key not in global_relation_map:
+            global_relation_map[rel.triple_key] = rel
+            new_relations.append(rel)
+
+    if new_relations:
+        cache.save_relations(new_relations)
+
+    cache.mark_chunk_completed(idx)
+    metrics.record_chunk_success()
+    metrics.record_entity(len(result.entities))
+    metrics.record_relation(len(new_relations))
+
+    _log(f"  ✅ chunk #{idx}: +{len(new_relations)} 条，累计 {len(global_relation_map)} 条")
+
+
 def build_graph(
     documents: list[Document],
     llm,
@@ -84,7 +198,10 @@ def build_graph(
     schema_cache_path = os.path.join(cache_dir, f"{db_name}_schema.json")
 
     # ---- 2. 初始化 Schema ----
-    schema = Schema.load_or_create(schema_cache_path)
+    schema = Schema.load_or_create(
+        schema_cache_path,
+        growth_threshold=config.GRAPH_SCHEMA_GROWTH_THRESHOLD,
+    )
 
     # ---- 3. 计算 Build Fingerprint ----
     extract_model = getattr(config, "GRAPH_EXTRACT_LLM_PROVIDER", "unknown")
@@ -159,7 +276,7 @@ def build_graph(
     global_relation_map: dict[tuple, RelModel] = cache.build_relation_map()
     all_known_entities: list[str] = list(global_entity_descriptions.keys())
 
-    # ---- 8. 主循环：逐 chunk 处理 ----
+    # ---- 8. 主循环：逐 chunk 处理（单 chunk 异常不中断整体构建） ----
     for idx, text in sections:
         _log(f"  📝 chunk #{idx} 抽取中...")
 
@@ -172,81 +289,18 @@ def build_graph(
             metrics.record_relation(len(cached_rels))
             continue
 
-        cache.mark_chunk_processing(idx, text)
-
-        # 抽取
-        result = extractor.extract(text, idx)
-        if result is None or result.is_empty:
-            _log(f"  ⚠️ chunk #{idx}: 未抽取到有效三元组")
+        try:
+            _process_one_chunk(
+                idx, text, cache, extractor, validator, merger, canonicalizer,
+                metrics, global_entity_descriptions, global_relation_map,
+                all_known_entities, _log,
+            )
+        except Exception as e:
+            # 逐 chunk 兜底：一个 chunk 异常不能崩掉整个图构建
+            logger.exception(f"chunk #{idx} 处理异常")
+            _log(f"  ❌ chunk #{idx} 处理异常: {e}，跳过该 chunk 继续")
             cache.mark_chunk_failed(idx)
             metrics.record_chunk_failed()
-            continue
-
-        # 校验
-        validated_relations = validator.validate(result.relations, text)
-        filtered_count = len(result.relations) - len(validated_relations)
-        if filtered_count > 0:
-            metrics.record_filtered_by_llm(filtered_count)
-
-        if not validated_relations:
-            cache.mark_chunk_failed(idx)
-            metrics.record_chunk_failed()
-            continue
-
-        # 合并描述 + 规范化实体
-        new_relations: list[RelModel] = []
-        for rel in validated_relations:
-            # 保存原始名称（用于在 result.entities 中查找 description）
-            orig_subj = rel.subject
-            orig_obj = rel.object
-
-            # 实体规范化
-            for orig_name in [orig_subj, orig_obj]:
-                if orig_name not in all_known_entities:
-                    canonical = canonicalizer.canonicalize(orig_name, all_known_entities)
-                    if canonical and canonical != orig_name:
-                        cache.update_entity_canonical(orig_name, canonical)
-                        metrics.record_canonicalized()
-                        if rel.subject == orig_name:
-                            rel.subject = canonical
-                        if rel.object == orig_name:
-                            rel.object = canonical
-                        if orig_name not in all_known_entities:
-                            all_known_entities.append(canonical)
-
-            # Description 合并（用原始名称在 result.entities 中查找）
-            for orig_name, final_name in [(orig_subj, rel.subject), (orig_obj, rel.object)]:
-                new_desc = ""
-                for ent in result.entities:
-                    if ent.name == orig_name:
-                        new_desc = ent.description
-                        break
-
-                if new_desc and len(new_desc) >= 5:
-                    existing_desc = global_entity_descriptions.get(final_name, "")
-                    merged_desc = merger.merge(existing_desc, new_desc, final_name)
-                    global_entity_descriptions[final_name] = merged_desc
-                    cache.update_entity_description(final_name, merged_desc)
-                    if existing_desc and merged_desc != existing_desc:
-                        metrics.record_merged_description()
-
-            # 去重
-            if rel.triple_key not in global_relation_map:
-                global_relation_map[rel.triple_key] = rel
-                new_relations.append(rel)
-
-        # 保存到缓存
-        if result.entities:
-            cache.save_entities(result.entities)
-        if new_relations:
-            cache.save_relations(new_relations)
-
-        cache.mark_chunk_completed(idx)
-        metrics.record_chunk_success()
-        metrics.record_entity(len(result.entities))
-        metrics.record_relation(len(new_relations))
-
-        _log(f"  ✅ chunk #{idx}: +{len(new_relations)} 条，累计 {len(global_relation_map)} 条")
 
     # 保存 Schema
     schema.save(schema_cache_path)

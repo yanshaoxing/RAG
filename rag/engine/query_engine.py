@@ -36,12 +36,16 @@ class GraphAugmentedQueryEngine(RetrieverQueryEngine):
         if self._graph_retriever is not None and self._graph_retriever.is_available:
             graph_text = self._graph_retriever.retrieve(query_bundle.query_str)
             if graph_text:
+                # score 取当前结果的最低分（而非固定 1.0）——
+                # 图谱上下文是补充信息，不应在任何按分数排序/截断的
+                # 下游逻辑中永远压过 rerank 结果
+                min_score = min((n.score or 0.0) for n in nodes) if nodes else 0.0
                 graph_node = NodeWithScore(
                     node=TextNode(
                         text=f"【知识图谱关联信息】\n{graph_text}",
                         metadata={"is_graph_context": True},
                     ),
-                    score=1.0,
+                    score=min_score,
                 )
                 nodes = list(nodes) + [graph_node]
 

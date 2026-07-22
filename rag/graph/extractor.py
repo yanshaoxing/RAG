@@ -11,8 +11,9 @@
 import json
 import logging
 import os
-import re
 from typing import Optional
+
+from rag.utils.json_parse import parse_json_obj
 
 from .models import ChunkResult, Entity, Relation
 from .schema import Schema
@@ -29,26 +30,6 @@ def _load_rules() -> dict:
     except Exception:
         logger.warning("无法加载 rules.json，使用空规则集")
         return {}
-
-
-def _try_json_repair(text: str) -> Optional[dict]:
-    """尝试使用 json_repair 解析 JSON，失败则回退到正则。"""
-    try:
-        import json_repair
-        return json_repair.repair_json(text, return_objects=True)
-    except ImportError:
-        pass
-    except Exception:
-        pass
-
-    # 回退：正则提取
-    json_match = re.search(r"\{.*\}", text, re.DOTALL)
-    if json_match:
-        try:
-            return json.loads(json_match.group())
-        except json.JSONDecodeError:
-            pass
-    return None
 
 
 class Extractor:
@@ -87,14 +68,18 @@ class Extractor:
             logger.warning(f"LLM 抽取异常 chunk #{chunk_id}: {e}")
             return None
 
-        # 解析 JSON
-        data = _try_json_repair(text)
+        # 解析 JSON（parse_json_obj 保证返回 dict 或 None，不会因 LLM 输出数组而抛 AttributeError）
+        data = parse_json_obj(text)
         if not data:
             logger.debug(f"chunk #{chunk_id}: 无法解析 LLM 返回的 JSON")
             return None
 
         raw_entities = data.get("entities", [])
         raw_relations = data.get("relations", [])
+        if not isinstance(raw_entities, list):
+            raw_entities = []
+        if not isinstance(raw_relations, list):
+            raw_relations = []
 
         # 处理实体
         entities, valid_names = self._process_entities(raw_entities, chunk_id)
@@ -102,9 +87,8 @@ class Extractor:
         # 处理关系
         relations = self._process_relations(raw_relations, valid_names, entities, chunk_id, chunk_text)
 
-        if not relations:
-            return None
-
+        # 注意：只有实体、没有关系的 chunk 也返回结果（实体描述仍有价值），
+        # 由调用方决定如何处理，不再一律视为失败重抽
         return ChunkResult(
             chunk_id=chunk_id,
             entities=entities,
@@ -124,7 +108,9 @@ class Extractor:
         generic_blacklist = set(self._rules.get("generic_blacklist", []))
 
         for ent in raw_entities:
-            name = ent.get("name", "").strip()
+            if not isinstance(ent, dict):
+                continue
+            name = str(ent.get("name", "") or "").strip()
 
             # 规则过滤
             if len(name) < min_name_len:
@@ -175,9 +161,11 @@ class Extractor:
         seen_keys: set[tuple] = set()
 
         for rel in raw_relations:
-            subj = rel.get("subject", "").strip()
-            obj = rel.get("object", "").strip()
-            pred = rel.get("predicate", "").strip()
+            if not isinstance(rel, dict):
+                continue
+            subj = str(rel.get("subject", "") or "").strip()
+            obj = str(rel.get("object", "") or "").strip()
+            pred = str(rel.get("predicate", "") or "").strip()
 
             # 实体名称有效性
             if subj not in valid_names or obj not in valid_names:

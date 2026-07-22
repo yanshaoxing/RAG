@@ -7,33 +7,13 @@
   3. 返回含 validate_model 标记的 Relation
 """
 
-import json
 import logging
-import re
-from typing import Optional
+
+from rag.utils.json_parse import parse_json_obj, coerce_index_set
 
 from .models import Relation
 
 logger = logging.getLogger(__name__)
-
-
-def _try_parse_validate_json(text: str) -> Optional[dict]:
-    """尝试解析校验 LLM 返回的 JSON。"""
-    try:
-        import json_repair
-        return json_repair.repair_json(text, return_objects=True)
-    except ImportError:
-        pass
-    except Exception:
-        pass
-
-    json_match = re.search(r"\{.*\}", text, re.DOTALL)
-    if json_match:
-        try:
-            return json.loads(json_match.group())
-        except json.JSONDecodeError:
-            pass
-    return None
 
 
 class Validator:
@@ -76,13 +56,8 @@ class Validator:
         if not low_conf:
             return relations
 
-        if len(low_conf) <= 1:
-            # 只有一条低置信度，没必要送 LLM
-            for r in low_conf:
-                r.validated = True
-                r.validate_model = self._model_name
-            return relations
-
+        # 注意：即使只有一条低置信度关系也送 LLM 校验 ——
+        # 此前"单条直接放行"导致单关系 chunk 永远不被校验
         logger.info(
             f"  🔍 校验: {len(high_conf)} 条高置信度直接通过, "
             f"{len(low_conf)} 条低置信度送 LLM 校验"
@@ -110,7 +85,7 @@ class Validator:
                 r.validate_model = self._model_name
             return high_conf + low_conf
 
-        data = _try_parse_validate_json(text)
+        data = parse_json_obj(text)
         if not data:
             logger.debug("校验 LLM 未返回有效 JSON，保留全部低置信度关系")
             for r in low_conf:
@@ -118,10 +93,24 @@ class Validator:
                 r.validate_model = self._model_name
             return high_conf + low_conf
 
-        valid_indices = set(data.get("valid", []))
-        invalid_indices = data.get("invalid", [])
+        # 下标统一规整为 int（LLM 可能返回 ["0","2"] 等字符串下标，
+        # 否则匹配全部失败 → 该 chunk 的低置信度关系被整体误删）
+        valid_indices = coerce_index_set(data.get("valid", []))
+        invalid_indices = sorted(coerce_index_set(data.get("invalid", [])))
         corrected_list = data.get("corrected", [])
+        if not isinstance(corrected_list, list):
+            corrected_list = []
         reasons = data.get("reasons", {})
+        if not isinstance(reasons, dict):
+            reasons = {}
+
+        # 防御：若 LLM 未返回任何有效判定，保留全部低置信度关系
+        if not valid_indices and not invalid_indices and not corrected_list:
+            logger.debug("校验 LLM 返回的判定为空，保留全部低置信度关系")
+            for r in low_conf:
+                r.validated = True
+                r.validate_model = self._model_name
+            return high_conf + low_conf
 
         # 日志：被过滤的
         if invalid_indices:
@@ -129,7 +118,7 @@ class Validator:
             for i in invalid_indices:
                 if 0 <= i < len(low_conf):
                     r = low_conf[i]
-                    reason = reasons.get(str(i), "")
+                    reason = reasons.get(str(i), "") or reasons.get(i, "")
                     logger.info(
                         f"     ❌ [{i}] {r.subject} → {r.predicate} → {r.object}"
                         f"{'  — ' + reason if reason else ''}"
@@ -145,7 +134,12 @@ class Validator:
 
         # 收集修正的
         for corr in corrected_list:
-            idx = corr.get("index", -1)
+            if not isinstance(corr, dict):
+                continue
+            try:
+                idx = int(corr.get("index", -1))
+            except (ValueError, TypeError):
+                continue
             if 0 <= idx < len(low_conf):
                 orig = low_conf[idx]
                 corrected = Relation(

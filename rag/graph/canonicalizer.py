@@ -10,6 +10,8 @@
 import logging
 from typing import Optional
 
+from rag.utils.json_parse import parse_json_obj
+
 logger = logging.getLogger(__name__)
 
 CANONICALIZE_PROMPT = """你是一个实体名称规范化助手。给定一个「候选名称」和一个「已知实体名称列表」，判断候选名称是否是某个已知实体的别名或简称。
@@ -96,18 +98,9 @@ class Canonicalizer:
             response = self._llm.complete(prompt)
             text = response.text.strip()
 
-            import json
-            import re
-
-            try:
-                import json_repair
-                data = json_repair.repair_json(text, return_objects=True)
-            except (ImportError, Exception):
-                json_match = re.search(r"\{.*\}", text, re.DOTALL)
-                if json_match:
-                    data = json.loads(json_match.group())
-                else:
-                    return None
+            data = parse_json_obj(text)
+            if not data:
+                return None
 
             canonical = data.get("canonical")
             if canonical and canonical in known_names:

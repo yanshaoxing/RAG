@@ -10,14 +10,13 @@
 v2 变化：支持 Schema-aware 多 Label 查询（不再是硬编码 Entity）
 """
 
-import json
 import logging
-import re
 from typing import Optional, List
 
 from llama_index.core.indices.property_graph import PropertyGraphIndex
 
 from rag import config
+from rag.utils.json_parse import parse_json_list
 
 logger = logging.getLogger(__name__)
 
@@ -31,25 +30,6 @@ ENTITY_EXTRACT_FROM_QUERY_PROMPT = (
     '用户问题：{query}\n'
     '实体列表（JSON）：'
 )
-
-
-def _try_parse_json_array(text: str) -> Optional[list]:
-    """尝试解析 JSON 数组。"""
-    try:
-        import json_repair
-        result = json_repair.repair_json(text, return_objects=True)
-        if isinstance(result, list):
-            return result
-    except (ImportError, Exception):
-        pass
-
-    json_match = re.search(r"\[.*\]", text, re.DOTALL)
-    if json_match:
-        try:
-            return json.loads(json_match.group())
-        except json.JSONDecodeError:
-            pass
-    return None
 
 
 class GraphRetriever:
@@ -103,7 +83,7 @@ class GraphRetriever:
         try:
             response = self._llm.complete(prompt)
             text = response.text.strip()
-            entities = _try_parse_json_array(text)
+            entities = parse_json_list(text)
             if entities:
                 return [e.strip() for e in entities if isinstance(e, str) and len(e.strip()) >= 2]
         except Exception as e:

@@ -362,7 +362,8 @@ GRAPH_VALIDATE_LLM_TEMPERATURE = 0.1
 # 是否启用 LLM 二次校验
 GRAPH_VALIDATE_ENABLED = True  # 开启后每个 chunk 做完规则过滤再送 LLM 校验
 
-# 校验策略：置信度阈值（低于此阈值的关系才送 LLM 校验，设为 2.0 表示全部校验）
+# 校验策略：置信度低于此阈值的关系才送 LLM 校验（抽取置信度范围 0.0~1.0，
+# 由描述长度/类型识别度等启发式打分）。设为 >1.0（如 2.0）表示全部关系送校验。
 GRAPH_VALIDATE_CONFIDENCE_THRESHOLD = 2.0
 
 # Schema 自动成长阈值（未知类型出现次数达到此值后自动升级为 learned 类型）

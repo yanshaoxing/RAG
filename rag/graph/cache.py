@@ -212,9 +212,16 @@ class GraphCache:
         self._conn.commit()
 
     def get_all_entity_descriptions(self) -> dict[str, str]:
-        """获取所有实体的 canonical name → description 映射。"""
+        """获取所有实体的 canonical name → description 映射。
+
+        同一 canonical_name 可能有多行（多个 chunk 各存一行），取描述最长的一行 ——
+        合并后的描述通过 update_entity_description 写回所有行，最长的即最完整；
+        此前 GROUP BY 取非聚合列会返回任意一行，续跑时合并描述可能被原始描述遮蔽。
+        """
         rows = self._conn.execute(
-            "SELECT canonical_name, description FROM entities WHERE description != '' GROUP BY canonical_name"
+            """SELECT canonical_name, description, MAX(LENGTH(description))
+               FROM entities WHERE description != '' AND canonical_name IS NOT NULL
+               GROUP BY canonical_name"""
         ).fetchall()
         return {row[0]: row[1] for row in rows}
 

@@ -211,11 +211,14 @@ class Schema:
     ) -> str:
         """计算构建指纹，用于检测缓存是否失效。
 
-        当 Schema、Prompt、模型、代码版本任一变化时，指纹也会变化。
+        当内置 Schema、Prompt、模型、代码版本任一变化时，指纹也会变化。
+
+        注意：learned_types 不参与指纹计算 —— 它在构建过程中自动成长并保存，
+        若计入指纹会导致"下次启动指纹变化 → 缓存整体失效 → 全书重抽"，
+        断点续传机制被 Schema 成长机制击穿。
         """
         components = [
             json.dumps(sorted(self._builtin.items()), sort_keys=True),
-            json.dumps(sorted(self._learned_types.items()), sort_keys=True),
             json.dumps(sorted(self._relation_map.items()), sort_keys=True),
             extract_prompt,
             validate_prompt,
@@ -249,17 +252,19 @@ class Schema:
         return schema
 
     @classmethod
-    def load_or_create(cls, cache_path: str) -> "Schema":
-        """从缓存加载 Schema，如果不存在则创建新的。"""
+    def load_or_create(cls, cache_path: str, growth_threshold: int = 5) -> "Schema":
+        """从缓存加载 Schema，如果不存在则创建新的。growth_threshold 以传入值为准。"""
         if os.path.exists(cache_path):
             try:
                 with open(cache_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 logger.info(f"  从缓存加载 Schema: {len(data.get('learned_types', {}))} 个 learned 类型")
-                return cls.from_dict(data)
+                schema = cls.from_dict(data)
+                schema._growth_threshold = growth_threshold
+                return schema
             except Exception as e:
                 logger.warning(f"  Schema 缓存加载失败: {e}，将创建新的 Schema")
-        return cls()
+        return cls(growth_threshold=growth_threshold)
 
     def save(self, cache_path: str):
         """保存 Schema 到缓存。"""
