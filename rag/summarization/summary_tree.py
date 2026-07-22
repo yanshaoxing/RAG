@@ -55,14 +55,6 @@ class SummaryGroup:
     subsection: str = ""
 
 
-# ======================== Token 估算 ========================
-
-
-def _estimate_tokens(text: str) -> int:
-    """粗略估算文本的 token 数（中英文混合，1 字 ≈ 0.6 token）。"""
-    return max(1, int(len(text) * 0.6))
-
-
 # ======================== 叶子摘要生成（L1）=======================
 
 

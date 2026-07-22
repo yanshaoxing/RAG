@@ -132,7 +132,7 @@ class QueryDecomposer:
             line = re.sub(r"^子查询\s*\d+[:：]\s*", "", line)
             if line and len(line) > 3:
                 queries.append(line)
-        return queries if queries else []
+        return queries
 
     # ---------- LLM 调用 ----------
 

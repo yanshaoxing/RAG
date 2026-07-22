@@ -205,7 +205,6 @@ RERANK_BASE_URL = os.environ.get("RAG_RERANK_BASE_URL", "http://10.245.100.186:1
 RERANK_MODEL_NAME = "bge_reranker_v2_m3"
 RERANK_TIMEOUT = 30.0
 RERANK_TEXT_MAX_LENGTH = 8192     # 送入 reranker 的文本最大长度（bge-reranker-v2-m3 最大 8192 tokens）
-RERANK_MAX_CONCURRENCY = 4       # ThreadPoolExecutor 最大并发数（vLLM continuous batching 自动合并）
 
 # ============================================================
 # 分块
@@ -220,7 +219,6 @@ SUMMARY_TREE_ENABLED = True       # 开关：启用层次化摘要树
 SUMMARY_LLM_PROVIDER = "davy"     # 生成摘要使用的 LLM："ollama" | "davy"
 SUMMARY_OLLAMA_MODEL = "qwen3.5:9b"   # provider=ollama 时的摘要模型
 SUMMARY_OLLAMA_TIMEOUT = 300.0        # provider=ollama 时的摘要请求超时
-SUMMARY_GROUP_SIZE = 10           # L2→L3 每组合并的章节数
 SUMMARY_PARENT_RATIO = 0.20       # L2 小节摘要字数 = 输入文本总字数 × 此比例
 SUMMARY_CHAPTER_RATIO = 0.15      # L3 章节摘要字数 = 输入文本总字数 × 此比例
 SUMMARY_BOOK_CHARS = 500          # L4 全书摘要字数上限
@@ -228,18 +226,6 @@ SUMMARY_BATCH_SIZE = 20          # 每批次生成叶子摘要的数量（用于
 SUMMARY_MAX_CONCURRENCY = 2      # 摘要生成的最大并发请求数（经压测，>2 会触发 429）
 SUMMARY_LEAF_BATCH_SIZE = 5      # 每次 LLM 调用合并的 chunk 数（减少 API 调用次数，约 2x 加速）
 SUMMARY_LLM_TEMPERATURE = 0.1
-
-# 叶子摘要 prompt —— 单 chunk 模式（兼容保留）
-SUMMARY_LEAF_PROMPT = (
-    '你是一个文档摘要助手。请用一句话概括以下文档片段的主题和核心内容。\n'
-    '要求：\n'
-    '1. 控制在 100 字以内\n'
-    '2. 保留关键实体和术语\n'
-    '3. 使用陈述句，不包含编号或格式标记\n'
-    '4. 仅输出摘要文本，不要添加任何解释\n\n'
-    '文档片段：\n{chunk_text}\n\n'
-    '一句话摘要：'
-)
 
 # 叶子摘要 prompt —— 批量模式（一次请求处理多个 chunk）
 SUMMARY_LEAF_BATCH_PROMPT = (
@@ -337,13 +323,8 @@ GRAPH_DB_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "graph_db")
 # ============================================================
 GRAPH_ENABLED = True               # 开关：是否启用知识图谱构建与检索
 
-# 图专用分块参数（比检索分块更大，给 LLM 更完整的上下文理解人物关系）
-GRAPH_CHUNK_SIZE = 1500            # 图抽取的 chunk 大小（字符数）
-GRAPH_CHUNK_OVERLAP = 200          # 图抽取的 chunk 重叠
-
-# 图检索设置
+# 图检索设置（图抽取按"节"进行，不再单独分块）
 GRAPH_RETRIEVAL_MAX_TRIPLES = 20   # 每次图检索最多返回的三元组数量
-GRAPH_RETRIEVAL_DEPTH = 2          # 图遍历深度（从匹配实体出发的跳数，1=直接邻居，2=邻居的邻居）
 GRAPH_RETRIEVAL_TOP_K = 5          # 匹配实体时取 top-k 个实体作为入口
 
 # 实体/关系抽取 LLM 配置
@@ -368,9 +349,6 @@ GRAPH_VALIDATE_CONFIDENCE_THRESHOLD = 2.0
 
 # Schema 自动成长阈值（未知类型出现次数达到此值后自动升级为 learned 类型）
 GRAPH_SCHEMA_GROWTH_THRESHOLD = 5
-
-# 是否启用实体名称规范化（别名 → Canonical Name）
-GRAPH_CANONICALIZE_ENABLED = True
 
 # 实体/关系抽取 Prompt（开放 Schema，质量优先，不限制数量）
 GRAPH_EXTRACT_PROMPT = (

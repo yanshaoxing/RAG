@@ -11,3 +11,6 @@ venv/
 # 临时目录
 data_tmp/
 *.tmp
+
+# 可视化产物
+graph_visualization.html

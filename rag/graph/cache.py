@@ -10,14 +10,13 @@ SQLite 缓存模块 —— 替代 JSON 全量重写，支持断点续传、增�
 """
 
 import hashlib
-import json
 import logging
 import os
 import sqlite3
 import time
 from typing import Optional
 
-from .models import ChunkResult, Entity, Relation
+from .models import Entity, Relation
 
 logger = logging.getLogger(__name__)
 
@@ -153,13 +152,6 @@ class GraphCache:
         ).fetchall()
         return {row[0] for row in rows}
 
-    def get_pending_chunk_ids(self) -> set[int]:
-        """获取所有待处理的 chunk ID。"""
-        rows = self._conn.execute(
-            "SELECT chunk_id FROM chunks WHERE status != 'completed'"
-        ).fetchall()
-        return {row[0] for row in rows}
-
     # ---- Entity 管理 ----
 
     def save_entities(self, entities: list[Entity]):
@@ -178,14 +170,6 @@ class GraphCache:
             rows,
         )
         self._conn.commit()
-
-    def get_or_create_entity_description(self, name: str) -> Optional[str]:
-        """获取实体的 canonical description。"""
-        row = self._conn.execute(
-            "SELECT description FROM entities WHERE canonical_name = ? AND description != '' ORDER BY confidence DESC LIMIT 1",
-            (name,),
-        ).fetchone()
-        return row[0] if row else None
 
     def update_entity_description(self, name: str, description: str, confidence: float = 0.0):
         """更新实体的 description。"""
@@ -225,16 +209,6 @@ class GraphCache:
         ).fetchall()
         return {row[0]: row[1] for row in rows}
 
-    def get_all_entities(self) -> list[Entity]:
-        """获取所有实体。"""
-        rows = self._conn.execute(
-            "SELECT DISTINCT canonical_name, type, description, confidence FROM entities WHERE canonical_name IS NOT NULL"
-        ).fetchall()
-        return [
-            Entity(name=row[0], type=row[1], description=row[2], confidence=row[3])
-            for row in rows
-        ]
-
     # ---- Relation 管理 ----
 
     def save_relations(self, relations: list[Relation]):
@@ -260,14 +234,6 @@ class GraphCache:
             rows,
         )
         self._conn.commit()
-
-    def relation_exists(self, subject: str, predicate: str, obj: str) -> bool:
-        """检查关系是否已存在。"""
-        row = self._conn.execute(
-            "SELECT 1 FROM relations WHERE subject = ? AND predicate = ? AND object = ? LIMIT 1",
-            (subject, predicate, obj),
-        ).fetchone()
-        return row is not None
 
     def get_all_relations(self) -> list[Relation]:
         """获取所有关系。"""
@@ -315,24 +281,6 @@ class GraphCache:
         relations = self.get_all_relations()
         return {r.triple_key: r for r in relations}
 
-    # ---- Schema 管理 ----
-
-    def save_schema_types(self, schema_types: dict[str, tuple[str, int]]):
-        """保存 Schema 类型统计。{type_name: (category, count)}"""
-        rows = [(name, cat, cnt) for name, (cat, cnt) in schema_types.items()]
-        self._conn.executemany(
-            "INSERT OR REPLACE INTO schema_types (name, category, count) VALUES (?, ?, ?)",
-            rows,
-        )
-        self._conn.commit()
-
-    def get_schema_types(self) -> dict[str, tuple[str, int]]:
-        """获取 Schema 类型统计。"""
-        rows = self._conn.execute(
-            "SELECT name, category, count FROM schema_types"
-        ).fetchall()
-        return {row[0]: (row[1], row[2]) for row in rows}
-
     # ---- Metadata ----
 
     def set_metadata(self, key: str, value: str):
@@ -355,30 +303,6 @@ class GraphCache:
 
     def set_fingerprint(self, fingerprint: str):
         self.set_metadata("fingerprint", fingerprint)
-
-    # ---- 统计 ----
-
-    def count_entities(self) -> int:
-        row = self._conn.execute(
-            "SELECT COUNT(DISTINCT canonical_name) FROM entities"
-        ).fetchone()
-        return row[0] if row else 0
-
-    def count_relations(self) -> int:
-        row = self._conn.execute("SELECT COUNT(*) FROM relations").fetchone()
-        return row[0] if row else 0
-
-    def count_completed_chunks(self) -> int:
-        row = self._conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE status = 'completed'"
-        ).fetchone()
-        return row[0] if row else 0
-
-    def count_failed_chunks(self) -> int:
-        row = self._conn.execute(
-            "SELECT COUNT(*) FROM chunks WHERE status = 'failed'"
-        ).fetchone()
-        return row[0] if row else 0
 
     # ---- 工具 ----
 

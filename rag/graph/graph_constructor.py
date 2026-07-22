@@ -339,13 +339,6 @@ def build_graph(
     graph_store.upsert_nodes(list(entity_nodes_map.values()))
     _log(f"  已插入 {len(entity_nodes_map)} 个实体（含 Schema Label）")
 
-    # 构建关系索引（O(1) 查找）
-    relation_index: dict[tuple, RelModel] = {}
-    for rel in all_relations:
-        key = (rel.subject, rel.predicate, rel.object)
-        if key not in relation_index:
-            relation_index[key] = rel
-
     # 插入关系
     rel_objects = []
     for rel in all_relations:

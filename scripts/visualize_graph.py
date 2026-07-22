@@ -1,54 +1,59 @@
-"""知识图谱可视化：实体圆圈 + 关系连线，节点大小按度数缩放。"""
-import json
+"""知识图谱可视化：实体圆圈 + 关系连线，节点大小按度数缩放。
+
+数据源：data/graph_cache/graph_db.db（SQLite 图构建缓存，与 Kuzu 图同源）。
+输出：仓库根目录 graph_visualization.html（pyvis 交互式页面）。
+
+用法：
+  python scripts/visualize_graph.py           # 默认展示度数 top-80 实体
+  python scripts/visualize_graph.py 150       # 展示 top-150
+"""
 import os
+import sqlite3
 import sys
 from collections import Counter
 
 import networkx as nx
 from pyvis.network import Network
 
-# 实体类型 → 颜色
+# 实体类型（Kuzu Label）→ 颜色
 TYPE_COLORS = {
-    "人物": "#e74c3c",
-    "组织": "#3498db",
-    "地点": "#2ecc71",
-    "城市": "#27ae60",
-    "国家": "#1abc9c",
-    "概念": "#9b59b6",
-    "物品": "#f39c12",
-    "金钱数额": "#e67e22",
-    "称号": "#1abc9c",
-    "事件": "#e91e63",
-    "未知": "#95a5a6",
+    "Person": "#e74c3c",
+    "Organization": "#3498db",
+    "Location": "#2ecc71",
+    "Event": "#e91e63",
+    "Item": "#f39c12",
+    "Concept": "#9b59b6",
+    "CreativeWork": "#1abc9c",
+    "Entity": "#95a5a6",
 }
 
 
-def load_triples(cache_path: str) -> list[dict]:
-    with open(cache_path, "r", encoding="utf-8") as f:
-        return json.load(f)
+def load_graph_from_cache(db_path: str) -> nx.MultiDiGraph:
+    """从 SQLite 图构建缓存读取实体类型与关系，构建 networkx 图。"""
+    conn = sqlite3.connect(db_path)
+    try:
+        entity_rows = conn.execute(
+            """SELECT canonical_name, type FROM entities
+               WHERE canonical_name IS NOT NULL AND canonical_name != ''"""
+        ).fetchall()
+        relation_rows = conn.execute(
+            "SELECT subject, predicate, object FROM relations"
+        ).fetchall()
+    finally:
+        conn.close()
 
-
-def build_graph(triples: list[dict]) -> nx.MultiDiGraph:
-    G = nx.MultiDiGraph()
+    # 实体类型映射：优先保留具体类型（非 Entity 兜底类型）
     entity_types: dict[str, str] = {}
+    for name, etype in entity_rows:
+        etype = etype or "Entity"
+        if name not in entity_types or (entity_types[name] == "Entity" and etype != "Entity"):
+            entity_types[name] = etype
 
-    for chunk in triples:
-        for ent in chunk.get("entities", []):
-            name = ent["name"]
-            etype = ent.get("type", "未知")
-            if name not in entity_types:
-                entity_types[name] = etype
-            elif entity_types[name] == "未知" and etype != "未知":
-                entity_types[name] = etype
-
-    for chunk in triples:
-        for rel in chunk.get("relations", []):
-            subj = rel["subject"]
-            obj = rel["object"]
-            pred = rel["predicate"]
-            G.add_node(subj, type=entity_types.get(subj, "未知"))
-            G.add_node(obj, type=entity_types.get(obj, "未知"))
-            G.add_edge(subj, obj, label=pred)
+    G = nx.MultiDiGraph()
+    for subj, pred, obj in relation_rows:
+        G.add_node(subj, type=entity_types.get(subj, "Entity"))
+        G.add_node(obj, type=entity_types.get(obj, "Entity"))
+        G.add_edge(subj, obj, label=pred)
 
     return G
 
@@ -127,12 +132,12 @@ def visualize(G: nx.MultiDiGraph, output_path: str, top_n: int = 80):
     # 先添加所有节点
     visible_nodes: set[str] = set()
     for node in G.nodes():
-        if top_n and node not in top_nodes:
+        if top_n and top_nodes and node not in top_nodes:
             continue
         visible_nodes.add(node)
         deg = degrees.get(node, 1)
         size = get_node_size(deg, min_deg, max_deg)
-        ntype = G.nodes[node].get("type", "未知")
+        ntype = G.nodes[node].get("type", "Entity")
         color = TYPE_COLORS.get(ntype, "#95a5a6")
         net.add_node(
             node,
@@ -161,18 +166,10 @@ def visualize(G: nx.MultiDiGraph, output_path: str, top_n: int = 80):
             arrowStrikethrough=False,
         )
 
-    # pyvis 在 Windows 上默认用 GBK 写文件，monkey-patch 强制 UTF-8
-    import builtins
-    _orig_open = builtins.open
-    def _utf8_open(file, mode="r", *args, **kwargs):
-        if "b" not in mode and "encoding" not in kwargs:
-            kwargs["encoding"] = "utf-8"
-        return _orig_open(file, mode, *args, **kwargs)
-    builtins.open = _utf8_open
-    try:
-        net.save_graph(output_path)
-    finally:
-        builtins.open = _orig_open
+    # 自行生成 HTML 并以 UTF-8 写盘（避免 pyvis 在 Windows 上按 GBK 写文件）
+    html = net.generate_html()
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(html)
     print(f"可视化完成: {output_path}")
     print(f"  节点: {len(visible_nodes)}")
     print(f"  边: {len(edges_added)}")
@@ -185,19 +182,19 @@ def visualize(G: nx.MultiDiGraph, output_path: str, top_n: int = 80):
 
 
 if __name__ == "__main__":
-    cache_path = os.path.join(
-        os.path.dirname(__file__), "..", "data", "graph_triples_cache_graph_db.json"
+    db_path = os.path.join(
+        os.path.dirname(__file__), "..", "data", "graph_cache", "graph_db.db"
     )
-    if not os.path.exists(cache_path):
-        print(f"缓存文件不存在: {cache_path}")
+    if not os.path.exists(db_path):
+        print(f"图构建缓存不存在: {db_path}")
+        print("请先运行 python scripts/build_full_graph.py 构建知识图谱")
         sys.exit(1)
 
-    print(f"加载缓存: {cache_path}")
-    triples = load_triples(cache_path)
-    print(f"  三元组 chunk 数: {len(triples)}")
+    top_n = int(sys.argv[1]) if len(sys.argv) > 1 else 80
 
-    G = build_graph(triples)
+    print(f"加载图构建缓存: {db_path}")
+    G = load_graph_from_cache(db_path)
     print(f"  实体: {len(G.nodes)}, 关系: {len(G.edges)}")
 
     output_path = os.path.join(os.path.dirname(__file__), "..", "graph_visualization.html")
-    visualize(G, output_path, top_n=80)
+    visualize(G, output_path, top_n=top_n)

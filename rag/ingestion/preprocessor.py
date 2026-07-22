@@ -23,7 +23,8 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # 章节 / 子章节模式
 
-# 小节标记：全角空格 + 1~2 位数字独占一行（如 "　　1"、"　　2"）
+# 小节标记：全角空格 + 1~2 位数字独占一行（如 "　　1"、"　　2"），
+# 或 "第X节"（阿拉伯数字）独占一行
 _SUB_PATTERN = re.compile(r"^(?:　+\d{1,2}|第\d{1,2}节)\s*$", re.MULTILINE)
 # ============================================================
 
@@ -36,13 +37,6 @@ _L1_PATTERN_HUI = re.compile(r"第[一二三四五六七八九十百千]+[回章
 # 一级标题统一匹配（用于 title 校验，合并两种模式）
 _L1_PATTERN = re.compile(r"[一二三四五六七八九十]{1,3}、|第[一二三四五六七八九十百千]+[回章节篇]")
 
-# 二级标题：（一）（二）（三）… 或 1. 2. 3. 或 1）2）3）
-_L2_PATTERN = re.compile(r"[(（][一二三四五六七八九十]+[)）]|^\d{1,2}[.、．)]")
-
-# 三级标题：(1) (2) (3)…
-_L3_PATTERN = re.compile(r"[(（]\d{1,2}[)）]")
-
-
 def _detect_l1_format(text: str) -> str:
     """
     自动检测一级标题格式。
@@ -54,39 +48,6 @@ def _detect_l1_format(text: str) -> str:
     dun_count = len(_L1_PATTERN_DUN.findall(sample))
     hui_count = len(_L1_PATTERN_HUI.findall(sample))
     return "hui" if hui_count > dun_count else "dun"
-
-
-def _detect_sub_section_level(line: str) -> Optional[int]:
-    """
-    检测一行文本是否为子章节标题，返回层级 2/3，否则返回 None。
-
-    优先级：先 L2 后 L3，避免 1. 误匹配序号列表的开头——目前不做
-    过度优化，只在标准中文文档上检测。
-    """
-    line = line.strip()
-    if not line:
-        return None
-    if _L2_PATTERN.match(line):
-        return 2
-    if _L3_PATTERN.match(line):
-        return 3
-    return None
-
-
-def _build_section_path(current_path: list[str], level: int, title: str) -> list[str]:
-    """
-    根据当前路径、层级和标题，构建新的 section_path。
-
-    规则：
-      - 一级标题：重置路径
-      - 二级/三级标题：裁剪到 level-1 后追加，保证路径不跳跃
-    """
-    path = list(current_path)
-    # 裁剪比当前 level 深或同级的旧段
-    while len(path) >= level:
-        path.pop()
-    path.append(title)
-    return path
 
 
 # ============================================================
@@ -307,7 +268,7 @@ class HierarchicalChunker(TransformComponent):
         chunk_size = config.CHUNK_SIZE
         overlap = config.CHUNK_OVERLAP
         results: list[BaseNode] = []
-        stats = {"total_chars": 0, "chunks": 0, "force_splits": 0}
+        stats = {"total_chars": 0, "chunks": 0}
 
         for node in nodes:
             text = node.text or ""
@@ -318,24 +279,13 @@ class HierarchicalChunker(TransformComponent):
             # 直接对章节全文做终点驱动的滑动窗口分块
             chunks_info = self._sliding_window(text, chunk_size, overlap)
             stats["chunks"] += len(chunks_info)
-            stats["force_splits"] += sum(
-                1 for c in chunks_info if c.get("forced", False)
-            )
 
             for chunk_info in chunks_info:
-                chunk_text = chunk_info["text"]
-                if chunk_info.get("forced"):
-                    logger.warning(
-                        "强制截断(%d chars): section=%s preview=%s...",
-                        len(chunk_text),
-                        node.metadata.get("section", "?"),
-                        chunk_text[:80].replace("\n", " "),
-                    )
-                results.append(self._make_node(chunk_text, node))
+                results.append(self._make_node(chunk_info["text"], node))
 
         logger.info(
-            "终点驱动分块: chars=%d → chunks=%d (force=%d)",
-            stats["total_chars"], stats["chunks"], stats["force_splits"],
+            "终点驱动分块: chars=%d → chunks=%d",
+            stats["total_chars"], stats["chunks"],
         )
         return results
 
