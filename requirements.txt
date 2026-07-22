@@ -1,0 +1,16 @@
+# RAG 问答系统依赖清单（版本固定于 2026-07-22，Python 3.12）
+llama-index==0.14.23
+llama-index-retrievers-bm25==0.7.1
+llama-index-vector-stores-faiss==0.6.0
+llama-index-graph-stores-kuzu==0.9.1
+llama-index-llms-ollama==0.10.1
+llama-index-embeddings-ollama==0.9.0
+faiss-cpu==1.14.3
+kuzu==0.11.3
+jieba==0.42.1
+streamlit==1.60.0
+docx2txt==0.9
+json_repair==0.61.7
+networkx==3.6.1
+pyvis==0.3.2
+requests>=2.31
