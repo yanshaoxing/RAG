@@ -10,10 +10,9 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from llama_index.core import Settings
-from llama_index.embeddings.ollama import OllamaEmbedding
 from rag.ingestion.preprocessor import load_documents
 from rag.graph.graph_constructor import build_graph
-from rag.llm.factory import create_answer_llm
+from rag.engine.bootstrap import init_settings
 from rag import config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -39,14 +38,12 @@ if __name__ == "__main__":
             resume_from = int(arg)
             print(f"  从第 {resume_from} 个 chunk 续传")
 
-    # 初始化 Settings
-    Settings.embed_model = OllamaEmbedding(
-        model_name=config.EMBED_MODEL_NAME,
-        base_url=config.EMBED_OLLAMA_BASE_URL,
-    )
-    Settings.llm = create_answer_llm()
-    print(f"\nLLM: {config.ANSWER_PROVIDER} ({config.DAVY_MODEL_NAME})")
-    print(f"Embed: {config.EMBED_MODEL_NAME}")
+    # 初始化 Settings（embedding + LLM 装配统一走 bootstrap，随 provider 配置切换）
+    init_settings()
+    answer_model = getattr(Settings.llm, "model_name", None) or getattr(Settings.llm, "model", "?")
+    embed_model = getattr(Settings.embed_model, "model_name", "?")
+    print(f"\nLLM: {config.ANSWER_PROVIDER} ({answer_model})")
+    print(f"Embed: {config.EMBED_PROVIDER} ({embed_model})")
 
     # 加载全部文档
     print("\n[1/2] 加载全部文档...")

@@ -64,7 +64,9 @@ def _resolve_graph_models(llm) -> tuple[str, str]:
     """
     extract_model = (getattr(llm, "model_name", None)
                      or getattr(llm, "model", None) or "unknown")
-    if config.GRAPH_VALIDATE_LLM_PROVIDER == "davy":
+    if config.GRAPH_VALIDATE_LLM_PROVIDER == "aliyun":
+        validate_model = config.ALIYUN_VALIDATE_MODEL
+    elif config.GRAPH_VALIDATE_LLM_PROVIDER == "davy":
         validate_model = config.GRAPH_VALIDATE_DAVY_MODEL
     else:
         validate_model = config.GRAPH_VALIDATE_LLM_MODEL

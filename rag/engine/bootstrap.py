@@ -11,6 +11,7 @@ from typing import Optional
 from llama_index.core import Settings
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.embeddings.ollama import OllamaEmbedding
+from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 
 from rag import config
 from rag.indexing.staged_indexer import get_or_build_index
@@ -27,12 +28,21 @@ logger = logging.getLogger(__name__)
 
 def init_settings() -> None:
     """初始化全局 Settings（embedding + 回答 LLM）。"""
-    Settings.embed_model = OllamaEmbedding(
-        model_name=config.EMBED_MODEL_NAME,
-        base_url=config.EMBED_OLLAMA_BASE_URL,
-        request_timeout=config.EMBED_TIMEOUT,
-        embed_batch_size=config.EMBED_BATCH_SIZE,
-    )
+    if config.EMBED_PROVIDER == "aliyun":
+        Settings.embed_model = OpenAILikeEmbedding(
+            model_name=config.ALIYUN_EMBED_MODEL,
+            api_base=config.ALIYUN_EMBED_BASE_URL,
+            api_key=config.ALIYUN_EMBED_API_KEY,
+            embed_batch_size=config.ALIYUN_EMBED_BATCH_SIZE,
+            timeout=config.EMBED_TIMEOUT,
+        )
+    else:
+        Settings.embed_model = OllamaEmbedding(
+            model_name=config.EMBED_MODEL_NAME,
+            base_url=config.EMBED_OLLAMA_BASE_URL,
+            request_timeout=config.EMBED_TIMEOUT,
+            embed_batch_size=config.EMBED_BATCH_SIZE,
+        )
     Settings.llm = create_answer_llm()
 
 

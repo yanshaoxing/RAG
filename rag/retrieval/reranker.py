@@ -1,8 +1,10 @@
 """
-重排序模块 —— 通过 vLLM /v1/rerank 端点调用 bge-reranker-v2-m3。
+重排序模块 —— 支持两种 provider（config.RERANK_PROVIDER）：
+  - "vllm"：内网 vLLM /v1/rerank 端点调用 bge-reranker-v2-m3（无鉴权）
+  - "aliyun"：阿里云 MaaS rerank 端点调用 qwen3-rerank（Bearer 鉴权）
 
-bge-reranker-v2-m3 是 cross-encoder 模型，通过 vLLM 标准 /v1/rerank 端点调用，
-返回 relevance_score（分数越高越相关）。
+两者均为 cross-encoder 重排，响应格式相同：results[].index + relevance_score
+（分数越高越相关），解析逻辑共用。
 
 并发策略：支持批量 /v1/rerank 单次请求（放入所有文档），失败时自动降级为原始顺序。
 瞬时故障（网络异常 / 429 / 5xx）先快速重试 RERANK_MAX_RETRIES 次，重试仍失败才降级 ——
@@ -25,16 +27,23 @@ _RETRY_DELAY = 0.5
 
 
 class Reranker:
-    """通过 vLLM /v1/rerank 端点调用 bge-reranker-v2-m3 进行重排序。"""
+    """cross-encoder 重排序器（vLLM bge-reranker-v2-m3 / 阿里云 qwen3-rerank）。"""
 
     def __init__(
         self,
-        base_url: str = config.RERANK_BASE_URL,
-        model_name: str = config.RERANK_MODEL_NAME,
+        base_url: Optional[str] = None,
+        model_name: Optional[str] = None,
         timeout: float = config.RERANK_TIMEOUT,
     ):
-        self._base_url = base_url.rstrip("/")
-        self._model_name = model_name
+        # 显式传入 base_url 时视为 vLLM 风格端点（测试/内网直连均走此路径）
+        if base_url is None and config.RERANK_PROVIDER == "aliyun":
+            self._url = config.ALIYUN_RERANK_URL
+            self._model_name = model_name or config.ALIYUN_RERANK_MODEL
+            self._headers = {"Authorization": f"Bearer {config.ALIYUN_RERANK_API_KEY}"}
+        else:
+            self._url = (base_url or config.RERANK_BASE_URL).rstrip("/") + "/v1/rerank"
+            self._model_name = model_name or config.RERANK_MODEL_NAME
+            self._headers = {}
         self._timeout = timeout
 
     @staticmethod
@@ -49,7 +58,7 @@ class Reranker:
         for attempt in range(max_retries + 1):
             try:
                 resp = requests.post(
-                    f"{self._base_url}/v1/rerank", json=body, timeout=self._timeout,
+                    self._url, json=body, headers=self._headers, timeout=self._timeout,
                 )
             except Exception as e:
                 if attempt >= max_retries:

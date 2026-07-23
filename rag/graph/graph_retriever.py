@@ -91,12 +91,15 @@ class GraphRetriever:
             for entity in entities[: config.GRAPH_RETRIEVAL_TOP_K]:
                 try:
                     # 使用通用 MATCH（不指定节点 Label），适配 Schema 多类型；
-                    # 实体名通过参数传递，避免含引号等特殊字符时注入/报错
+                    # 实体名通过参数传递，避免含引号等特殊字符时注入/报错。
+                    # 注意：KuzuPropertyGraphStore 的关系表为固定 schema（仅
+                    # label / triplet_source_id），构建期放入 Relation.properties
+                    # 的 description/chunk_id 不会持久化——查询不存在的属性会
+                    # 抛 Binder 异常导致图检索整体空手而归
                     query_str = (
                         f"MATCH (a)-[r]->(b) "
                         f"WHERE a.name CONTAINS $entity OR b.name CONTAINS $entity "
-                        f"RETURN a.name AS subject, r.label AS predicate, b.name AS object, "
-                        f"       r.description AS description, r.chunk_id AS chunk_id "
+                        f"RETURN a.name AS subject, r.label AS predicate, b.name AS object "
                         f"LIMIT {int(config.GRAPH_RETRIEVAL_MAX_TRIPLES)}"
                     )
                     result = graph_store.structured_query(query_str, param_map={"entity": entity})
@@ -106,11 +109,10 @@ class GraphRetriever:
                                 "subject": row.get("subject", ""),
                                 "predicate": row.get("predicate", ""),
                                 "object": row.get("object", ""),
-                                "description": row.get("description", ""),
-                                "chunk_id": row.get("chunk_id", None),
                             })
                 except Exception as e:
-                    logger.debug(f"实体 '{entity}' 图查询失败: {e}")
+                    # warning 而非 debug：静默吞掉会让图检索失效却毫无线索
+                    logger.warning(f"实体 '{entity}' 图查询失败: {e}")
                     continue
 
             seen = set()
@@ -130,7 +132,11 @@ class GraphRetriever:
             return []
 
     def _format_triples(self, triples: List[dict]) -> str:
-        """将三元组列表格式化为可嵌入 Prompt 的文本。"""
+        """将三元组列表格式化为可嵌入 Prompt 的文本。
+
+        description/chunk_id 未持久化到 Kuzu（固定 schema 丢弃自定义属性），
+        故仅输出三元组本体；键存在时仍兼容输出（防御未来 schema 扩展）。
+        """
         lines = []
         for t in triples:
             line = f"- {t['subject']} → {t['predicate']} → {t['object']}"

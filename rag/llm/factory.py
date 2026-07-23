@@ -121,7 +121,11 @@ class ThinkStreamFilter:
 # ======================== DavyLLM ========================
 
 class DavyLLM(CustomLLM):
-    """Davy 云端大模型适配器，实现 llama_index CustomLLM 接口。"""
+    """OpenAI 兼容云端大模型适配器（Davy / 阿里云通用），实现 llama_index CustomLLM 接口。
+
+    cert_path 为自定义 CA 证书路径（Davy 内网证书）；传空串 "" 表示公网端点，
+    使用系统 CA 验证（requests verify=True）。
+    """
 
     model_name: str = config.DAVY_MODEL_NAME
     base_url: str = config.DAVY_BASE_URL
@@ -218,7 +222,7 @@ class DavyLLM(CustomLLM):
                     url=f"{self.base_url}/chat/completions",
                     headers=headers,
                     json=request_body,
-                    verify=self.cert_path,
+                    verify=self.cert_path or True,  # 空串 = 公网端点，走系统 CA
                     timeout=self.request_timeout,
                     stream=stream,
                 )
@@ -343,8 +347,23 @@ class DavyLLM(CustomLLM):
 
 # ======================== 工厂函数 ========================
 
+def _create_aliyun_llm(model_name: Optional[str] = None,
+                       temperature: Optional[float] = None) -> DavyLLM:
+    """创建阿里云（公网 OpenAI 兼容端点）LLM，复用 DavyLLM 客户端。"""
+    return DavyLLM(
+        model_name=model_name or config.ALIYUN_MAIN_MODEL,
+        base_url=config.ALIYUN_CHAT_BASE_URL,
+        api_key=config.ALIYUN_CHAT_API_KEY,
+        cert_path="",  # 公网端点，系统 CA
+        temperature=temperature,
+        request_timeout=config.ALIYUN_CHAT_TIMEOUT,
+    )
+
+
 def create_answer_llm() -> CustomLLM:
     """创建最终回答用的 LLM。"""
+    if config.ANSWER_PROVIDER == "aliyun":
+        return _create_aliyun_llm()
     if config.ANSWER_PROVIDER == "davy":
         return DavyLLM()
     return Ollama(
@@ -356,6 +375,8 @@ def create_answer_llm() -> CustomLLM:
 
 def create_rewrite_llm() -> CustomLLM:
     """创建查询重写用的 LLM。"""
+    if config.REWRITE_PROVIDER == "aliyun":
+        return _create_aliyun_llm(temperature=config.REWRITE_TEMPERATURE)
     if config.REWRITE_PROVIDER == "davy":
         return DavyLLM()
     return Ollama(
@@ -367,6 +388,8 @@ def create_rewrite_llm() -> CustomLLM:
 
 def create_summary_llm() -> CustomLLM:
     """创建摘要生成用的 LLM。"""
+    if config.SUMMARY_LLM_PROVIDER == "aliyun":
+        return _create_aliyun_llm(temperature=config.SUMMARY_LLM_TEMPERATURE)
     if config.SUMMARY_LLM_PROVIDER == "davy":
         return DavyLLM(temperature=config.SUMMARY_LLM_TEMPERATURE)
     return Ollama(
@@ -380,6 +403,12 @@ def create_validate_llm() -> Optional[CustomLLM]:
     """创建三元组校验用的 LLM（不同模型交叉校验更可靠）。"""
     if not config.GRAPH_VALIDATE_ENABLED:
         return None
+
+    if config.GRAPH_VALIDATE_LLM_PROVIDER == "aliyun":
+        return _create_aliyun_llm(
+            model_name=config.ALIYUN_VALIDATE_MODEL,
+            temperature=config.GRAPH_VALIDATE_LLM_TEMPERATURE,
+        )
 
     if config.GRAPH_VALIDATE_LLM_PROVIDER == "davy":
         return DavyLLM(

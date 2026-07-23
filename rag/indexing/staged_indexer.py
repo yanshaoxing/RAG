@@ -268,7 +268,11 @@ def _stage_vector(all_nodes: list) -> VectorStoreIndex:
         shutil.rmtree(config.FAISS_PERSIST_DIR, ignore_errors=True)
         os.makedirs(config.FAISS_PERSIST_DIR, exist_ok=True)
 
-    faiss_index = faiss.IndexHNSW(faiss.IndexFlatIP(config.EMBED_VECTOR_DIM), config.HNSW_M)
+    # 必须用 IndexHNSWFlat 子类：基类 IndexHNSW 没有序列化编码，
+    # write_index 持久化时会报 "'h != 0' failed"
+    faiss_index = faiss.IndexHNSWFlat(
+        config.EMBED_VECTOR_DIM, config.HNSW_M, faiss.METRIC_INNER_PRODUCT,
+    )
     faiss_index.hnsw.efConstruction = config.HNSW_EF_CONSTRUCTION
     faiss_index.hnsw.efSearch = config.HNSW_EF_SEARCH
     vector_store = FaissVectorStore(faiss_index=faiss_index)
