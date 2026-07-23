@@ -10,7 +10,7 @@
 - **层次化摘要树**：L1 逐块 → L2 小节 → L3 章节 → L4 全书四级摘要，混入主索引解决"宏观问题查不到"；LLM 失败自动降级并显式标记
 - **知识图谱**：按节 LLM 抽取实体/关系 → 规则过滤 → 不同模型交叉校验 → 描述合并 → 别名归一化 → Kuzu 持久化；构建为有界流水线并发，SQLite 缓存支持断点续传
 - **真流式输出**：SSE 逐 token 渲染，增量剥离 `<think>` 思考块；断流未输出正文时自动整流重试
-- **工程化**：分阶段索引（`_DONE.json` 完成标记 + 原子写入）、embedding 分段断点续传、188 例离线单测（无需内网）
+- **工程化**：分阶段索引（`_DONE.json` 完成标记 + 原子写入）、embedding 分段断点续传、224 例离线单测（无需内网）
 
 ## 模型配置
 
@@ -500,6 +500,7 @@ flowchart TD
 ### 分块（`rag/ingestion/preprocessor.py`）
 
 - **章节感知**：自动检测一级标题风格（「一、」与「第X回/章/节/篇」按前 3000 字命中数比较），再按小节标记（「　　1」/「第X节」）二级拆分；章节标题与首个小节标记之间的正文保留为独立块，不丢弃。
+- **LLM 结构检测兜底**（`rag/ingestion/structure_detector.py`）：内置正则全文零命中的新书（如阿拉伯数字回目「第1回」），首次入库时采样（开头 + 全文 25%/50%/75% 三处）送 LLM 判断章节/小节正则，经确定性校验（可编译、切分章节数与标题长度合理）后写回该书 `corpus.json` 的 `chapter_pattern`/`subsection_pattern` 字段——之后构建直接读档案不再调 LLM；检测失败静默回退，构建不中断。也可手工在 `corpus.json` 里直接填这两个字段跳过检测（开关 `STRUCTURE_DETECT_ENABLED`）。
 - **语义边界分块**：切点只落在句末标点之后（。！？…… 及 。"/！"/？"/"。/）。/……" 等双/三标点组合，先匹配组合避免把连续标点切开）；块不跨章节。
 - **尾块均衡**：剩余文本 ≤ 2×chunk_size 时拆成两个大小接近的块，避免出现碎小尾块。
 - **动态重叠**：左边界从上一块右端回退 `CHUNK_OVERLAP=102` 后向右扫描语义边界，相邻块重叠约 10%。
@@ -608,14 +609,15 @@ RAG_CORPUS=WuLingChaShi streamlit run app/ui.py
 
 1. 新建 `corpora/<新slug>/`，放入 `corpus.json`（必填 `title` 书名 + `context` 原著背景块，背景块会注入改写/摘要/图谱等 prompt，写得越具体检索质量越好）
 2. 原文（txt / docx）放入 `corpora/<新slug>/raw/`
-3. 可选：`terminology.json`（通俗名→原文术语）、`graph_rules.json`（图谱规则补充，如男性角色名单）
+3. 可选：`terminology.json`（通俗名→原文术语）、`graph_rules.json`（图谱规则补充，如男性角色名单）；章节标题格式特殊（非「一、」/「第X回」中文数字式）的书无需额外配置——首次构建会自动采样送 LLM 检测结构并写回 `corpus.json`，也可手工预填 `chapter_pattern` 正则
 4. 用上面任一方式选中该书 —— 首次选中自动构建全部索引（构建走 LLM，公网模型下注意语料规模与费用）
 
 ### 目录约定
 
 ```
 corpora/<slug>/
-  corpus.json        必需：title（书名）+ context（注入 prompt 的原著背景块），可选 author/description
+  corpus.json        必需：title（书名）+ context（注入 prompt 的原著背景块），可选 author/description，
+                     可选 chapter_pattern/subsection_pattern（章节/小节正则，手工填或 LLM 结构检测自动写回）
   raw/               源语料（txt / docx）
   terminology.json   可选：通俗名 → 原文术语映射
   graph_rules.json   可选：图谱规则补充（与 rag/graph/rules.json 基础规则合并：列表并集、标量覆盖）
@@ -664,7 +666,7 @@ rag/
   llm/          Davy / Ollama LLM 工厂（重试、真流式）
   utils/        JSON 解析、原子写入、分词、并行工具
 scripts/        图谱构建 / 可视化脚本
-tests/          离线单测（200 例）
+tests/          离线单测（224 例）
 corpora/        每本书一个语料目录（corpus.json + raw/ + 术语表 + 图谱规则 + data/ 索引）
 assets/         CA 证书
 ```

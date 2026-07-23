@@ -224,6 +224,18 @@ CHUNK_SIZE = 1024
 CHUNK_OVERLAP = 102                 # 单侧 overlap 上限（字符数），chunk_size 的 10%，相邻 chunk 重叠约此值
 
 # ============================================================
+# 章节结构 LLM 检测（rag/ingestion/structure_detector.py）
+# ============================================================
+# 触发条件：语料档案无 chapter_pattern 字段 且 内置章节正则全文零命中（新书首次入库）。
+# 检测结果经确定性校验后写回 corpora/<slug>/corpus.json，之后构建不再调 LLM。
+STRUCTURE_DETECT_ENABLED = True
+STRUCTURE_SAMPLE_HEAD_CHARS = 3000   # 采样：全文开头字符数
+STRUCTURE_SAMPLE_SLICE_CHARS = 1000  # 采样：全文 25%/50%/75% 三处各取字符数
+STRUCTURE_MIN_SECTIONS = 3           # 校验：正则切出的章节数下限（过少视为正则无效）
+STRUCTURE_MAX_SECTIONS = 1000        # 校验：章节数上限（过多说明正则过宽、误匹配正文）
+STRUCTURE_MAX_TITLE_CHARS = 50       # 校验：章节标题行长度上限（超长说明切在了正文中间）
+
+# ============================================================
 # 摘要树
 # ============================================================
 SUMMARY_TREE_ENABLED = True       # 开关：启用层次化摘要树

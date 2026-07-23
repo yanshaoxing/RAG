@@ -50,6 +50,19 @@ class TestSplitBySection:
         for fragment in ("甲乙丙丁。", "戊己庚辛。"):
             assert fragment in merged
 
+    def test_custom_chapter_pattern(self):
+        # 语料档案的 chapter_pattern：内置正则不认识的阿拉伯数字回目
+        text = "第1回 起\n甲正文。\n第2回 承\n乙正文。\n第10回 转\n丙正文。"
+        sections = split_by_section(text, chapter_pattern=r"第\d+回")
+        assert [s["section"] for s in sections] == ["第1回 起", "第2回 承", "第10回 转"]
+        assert sections[2]["content"] == "丙正文。"
+
+    def test_custom_pattern_preface_overview(self):
+        text = "序言文字。\n第1回 起\n正文。"
+        sections = split_by_section(text, chapter_pattern=r"第\d+回")
+        assert sections[0]["section"] == "概述"
+        assert sections[1]["section"] == "第1回 起"
+
 
 class TestSplitBodyBySubsections:
     def test_no_markers(self):
@@ -77,6 +90,18 @@ class TestSplitBodyBySubsections:
         merged = "".join(s["content"] for s in subs)
         for fragment in ("章首。", "甲。", "乙。"):
             assert fragment in merged
+
+    def test_custom_subsection_pattern(self):
+        body = "§1\n第一节内容。\n§2\n第二节内容。"
+        subs = _split_body_by_subsections(body, subsection_pattern=r"^§\d+\s*$")
+        assert [s["subsection"] for s in subs] == ["1", "2"]
+        assert subs[1]["content"] == "第二节内容。"
+
+    def test_custom_pattern_without_digits_label(self):
+        # 标记不含数字时，标签回退为标记文本本身
+        body = "【上篇】\n上篇内容。\n【下篇】\n下篇内容。"
+        subs = _split_body_by_subsections(body, subsection_pattern=r"^【[上下]篇】\s*$")
+        assert [s["subsection"] for s in subs] == ["【上篇】", "【下篇】"]
 
 
 class TestFindSemanticBoundaryRight:

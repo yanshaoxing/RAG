@@ -60,11 +60,13 @@ def _detect_l1_format(text: str) -> str:
 # 章节分割
 # ============================================================
 
-def split_by_section(text: str) -> list[dict]:
+def split_by_section(text: str, chapter_pattern: str = "") -> list[dict]:
     """
     按章节标题将全文拆分为带元数据的段落列表。
 
-    自动检测一级标题格式，支持：
+    chapter_pattern 非空时用它作为章节标题正则（来自语料档案的 chapter_pattern
+    字段——手工填写或 LLM 结构检测写回，已通过 structure_detector 校验）；
+    为空时自动检测内置两种一级标题格式：
       - 「一、二、三、…」（中文数字 + 顿号）
       - 「第一回、第二回、…」（第X回/章/节/篇）
 
@@ -73,11 +75,16 @@ def split_by_section(text: str) -> list[dict]:
           "section_path": "第一回 灵根育孕源流出 > （二）贾府兴衰",
           "content": "该章节完整文本"}, ...]
     """
-    l1_fmt = _detect_l1_format(text)
-    if l1_fmt == "hui":
-        pattern = r"\n[ 　]*(?=第[一二三四五六七八九十百千]+[回章节篇])"
+    if chapter_pattern:
+        title_re = re.compile(chapter_pattern)
+        pattern = rf"\n[ 　]*(?={chapter_pattern})"
     else:
-        pattern = r"\n[ 　]*(?=[一二三四五六七八九十]{1,3}、)"
+        title_re = _L1_PATTERN
+        l1_fmt = _detect_l1_format(text)
+        if l1_fmt == "hui":
+            pattern = r"\n[ 　]*(?=第[一二三四五六七八九十百千]+[回章节篇])"
+        else:
+            pattern = r"\n[ 　]*(?=[一二三四五六七八九十]{1,3}、)"
     parts = re.split(pattern, text)
 
     sections = []
@@ -95,7 +102,7 @@ def split_by_section(text: str) -> list[dict]:
             body = part[first_line_end:].strip()
 
         # 如果第一行是章节标题，正文从第二行开始（标题已在 section 元数据中）
-        if _L1_PATTERN.match(title):
+        if title_re.match(title):
             sections.append({"section": title, "content": body, "section_path": title})
         else:
             sections.append({"section": "概述", "content": part, "section_path": "概述"})
@@ -107,17 +114,20 @@ def split_by_section(text: str) -> list[dict]:
 # 小节分割
 # ============================================================
 
-def _split_body_by_subsections(body: str) -> list[dict]:
+def _split_body_by_subsections(body: str, subsection_pattern: str = "") -> list[dict]:
     """
     将章节正文按小节标记（"　　1"、"　　2"等）拆分为小节列表。
 
-    小节标记：以全角空格开头 + 1~2 位数字 + 可选空白组成的行。
+    subsection_pattern 非空时用它作为小节标记正则（MULTILINE 编译，来自语料
+    档案，已通过校验）；为空时用内置标记：以全角空格开头 + 1~2 位数字 +
+    可选空白组成的行，或"第X节"（阿拉伯数字）独占一行。
 
     返回:
         [{"subsection": "1", "content": "该小节正文..."}, ...]
         若无小节标记，返回 [{"subsection": "", "content": body}]
     """
-    sub_matches = list(_SUB_PATTERN.finditer(body))
+    sub_re = re.compile(subsection_pattern, re.MULTILINE) if subsection_pattern else _SUB_PATTERN
+    sub_matches = list(sub_re.finditer(body))
     if not sub_matches:
         return [{"subsection": "", "content": body}]
 
@@ -128,7 +138,9 @@ def _split_body_by_subsections(body: str) -> list[dict]:
         subs.append({"subsection": "", "content": preamble})
 
     for i, sm in enumerate(sub_matches):
-        sub_label = re.search(r"\d+", sm.group()).group()
+        # 标签优先取标记中的数字；自定义标记可能不含数字，回退整个标记文本
+        label_match = re.search(r"\d+", sm.group())
+        sub_label = label_match.group() if label_match else sm.group().strip()
         sub_start = sm.end()
         sub_end = sub_matches[i + 1].start() if i + 1 < len(sub_matches) else len(body)
         sub_text = body[sub_start:sub_end].strip()
@@ -141,9 +153,54 @@ def _split_body_by_subsections(body: str) -> list[dict]:
 # 文档加载
 # ============================================================
 
+def _resolve_structure_patterns(texts: list[tuple[str, str]]) -> tuple[str, str]:
+    """
+    解析当前语料的章节/小节结构正则：(chapter_pattern, subsection_pattern)。
+
+    优先级：
+      1. 语料档案的 chapter_pattern 字段（手工填写或此前 LLM 检测写回）
+      2. 内置正则全文有命中 → 返回空串，走 split_by_section 的内置自动检测
+      3. 内置正则零命中且 STRUCTURE_DETECT_ENABLED → LLM 结构检测
+         （structure_detector，结果写回档案，下次构建走优先级 1）
+      4. 检测失败 / 关闭 → 返回空串（整书落入"概述"单章，构建不中断）
+
+    离线保证：档案有字段或内置正则可命中时绝不调 LLM（现有语料与单测不受影响）。
+    """
+    from rag.corpus import get_active_profile
+
+    try:
+        profile = get_active_profile()
+    except (FileNotFoundError, ValueError) as e:
+        logger.warning("语料档案不可用，章节切分走内置检测：%s", e)
+        return "", ""
+
+    if profile.chapter_pattern:
+        logger.info("使用语料档案的章节正则：%r", profile.chapter_pattern)
+        return profile.chapter_pattern, profile.subsection_pattern
+
+    full_text = "\n".join(t for _, t in texts)
+    if not full_text.strip() or _L1_PATTERN.search(full_text):
+        return "", ""  # 空语料 / 内置格式可识别，无需 LLM
+
+    if not config.STRUCTURE_DETECT_ENABLED:
+        logger.warning("内置章节正则零命中且结构检测已关闭，整书按单章处理")
+        return "", ""
+
+    from rag.ingestion.structure_detector import detect_and_persist
+    try:
+        result = detect_and_persist(profile.slug, full_text)
+    except Exception as e:
+        logger.warning("LLM 结构检测异常，整书按单章处理：%s", e)
+        return "", ""
+    return result.get("chapter_pattern", ""), result.get("subsection_pattern", "")
+
+
 def load_documents(data_dir: Optional[str] = None) -> list[Document]:
     """
     从 data 目录加载所有 .docx / .txt 文件，按章节→小节拆分为 Document 列表。
+
+    章节/小节切分正则由 _resolve_structure_patterns 解析（语料档案字段优先，
+    内置正则零命中的新书触发一次 LLM 结构检测并写回档案）。
 
     Args:
         data_dir: 数据目录路径，默认使用 config.DATA_DIR
@@ -154,7 +211,7 @@ def load_documents(data_dir: Optional[str] = None) -> list[Document]:
     if data_dir is None:
         data_dir = config.DATA_DIR
 
-    raw_documents = []
+    texts: list[tuple[str, str]] = []
     for fp in sorted(Path(data_dir).glob("*")):
         suffix = fp.suffix.lower()
         if suffix == ".docx":
@@ -164,15 +221,20 @@ def load_documents(data_dir: Optional[str] = None) -> list[Document]:
                 text = f.read()
         else:
             continue
+        texts.append((fp.name, text))
 
-        sections = split_by_section(text)
+    chapter_pattern, subsection_pattern = _resolve_structure_patterns(texts)
+
+    raw_documents = []
+    for file_name, text in texts:
+        sections = split_by_section(text, chapter_pattern)
         for sec in sections:
-            subs = _split_body_by_subsections(sec["content"])
+            subs = _split_body_by_subsections(sec["content"], subsection_pattern)
             for sub in subs:
                 doc = Document(
                     text=sub["content"],
                     metadata={
-                        "file_name": fp.name,
+                        "file_name": file_name,
                         "section": sec["section"],
                         "subsection": sub["subsection"],
                         "section_path": sec["section_path"],

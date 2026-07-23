@@ -37,6 +37,10 @@ class CorpusProfile:
     context: str                    # 原著背景块（注入 prompt 的 {corpus_context}）
     author: str = ""
     description: str = ""
+    # 章节/小节结构正则（可选）：手工填写或由 LLM 结构检测写回
+    # （rag/ingestion/structure_detector.py）；为空时预处理走内置正则自动检测
+    chapter_pattern: str = ""
+    subsection_pattern: str = ""
     corpus_dir: str = field(default="", repr=False)
 
     @property
@@ -80,8 +84,33 @@ def load_profile(slug: str) -> CorpusProfile:
         context=data["context"],
         author=data.get("author", ""),
         description=data.get("description", ""),
+        chapter_pattern=data.get("chapter_pattern", ""),
+        subsection_pattern=data.get("subsection_pattern", ""),
         corpus_dir=corpus_dir,
     )
+
+
+def save_structure_patterns(slug: str, chapter_pattern: str,
+                            subsection_pattern: str = "") -> None:
+    """把章节/小节结构正则写回 corpora/<slug>/corpus.json（原子写），并失效档案缓存。
+
+    由 LLM 结构检测（structure_detector.detect_and_persist）调用；写回后
+    该语料的后续构建直接读档案字段，不再触发 LLM 检测。
+    """
+    from rag.utils.files import atomic_write_json
+
+    profile_path = os.path.join(config.CORPORA_ROOT, slug, "corpus.json")
+    with open(profile_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    if chapter_pattern:
+        data["chapter_pattern"] = chapter_pattern
+    if subsection_pattern:
+        data["subsection_pattern"] = subsection_pattern
+    atomic_write_json(profile_path, data)
+    with _active_lock:
+        _profile_cache.pop(slug, None)  # 下次 get_active_profile 重新读盘
+    logger.info("语料 %s 结构正则已写回档案：chapter=%r subsection=%r",
+                slug, chapter_pattern, subsection_pattern)
 
 
 # ---------- 激活语料（进程级状态，启动默认 = RAG_CORPUS / config.DEFAULT_CORPUS） ----------
