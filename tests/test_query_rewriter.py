@@ -42,6 +42,17 @@ class TestRewriteDisabled:
         assert nl == hyde == kw == "芮小丹是谁"
 
 
+class TestRewriteParallel:
+    def test_three_routes_parallel_results_ordered(self):
+        # 三路并行改写后，返回值必须仍按 (NL, HyDE, 关键词) 顺序对应
+        r = _rewriter_with_terms({}, enabled=True)
+        r._generate_nl = lambda q: f"NL[{q}]"
+        r._generate_hyde = lambda q: f"HYDE[{q}]"
+        r._generate_kw = lambda q: f"KW[{q}]"
+        nl, hyde, kw = r.rewrite("测试查询")
+        assert (nl, hyde, kw) == ("NL[测试查询]", "HYDE[测试查询]", "KW[测试查询]")
+
+
 class TestDedupKw:
     def test_order_preserving_dedup(self):
         assert QueryRewriter._dedup_kw("甲 乙 甲 丙 乙") == "甲 乙 丙"

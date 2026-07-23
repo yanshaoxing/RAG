@@ -18,6 +18,9 @@
 基于 contextvars，天然按调用上下文隔离，多会话（Streamlit）互不串扰。
 注意：ThreadPoolExecutor 工作线程不继承上下文，工作线程内的日志
 只会进入标准 logging，不进入捕获缓冲（管线各阶段的汇总日志均在主线程输出）。
+查询期并行任务请使用 rag.utils.concurrency.run_parallel_captured ——
+它在 worker 内独立捕获日志、由主线程按任务顺序回放（replay_into_capture），
+保证 UI"运行流程"面板的日志有序且不丢失。
 """
 
 import contextvars
@@ -74,6 +77,17 @@ class LogCapture:
         lines = self.lines[:]
         self.lines.clear()
         return lines
+
+
+def replay_into_capture(lines: list) -> None:
+    """把 worker 线程内预先捕获的日志行追加到当前上下文的捕获缓冲。
+
+    仅写入捕获缓冲、不经过 logging（worker 发射时已进入标准 logging，
+    再走 logger 会在控制台重复打印一遍）。无捕获上下文时静默忽略。
+    """
+    buffer = _current_buffer.get()
+    if buffer is not None and lines:
+        buffer.extend(lines)
 
 
 @contextmanager

@@ -18,6 +18,7 @@ from typing import Optional
 from llama_index.core.llms import ChatMessage, MessageRole, CustomLLM
 
 from rag import config
+from rag.utils.concurrency import run_parallel_captured
 
 logger = logging.getLogger(__name__)
 
@@ -143,12 +144,17 @@ class QueryRewriter:
                 self._log(f"步骤 3.1：查询重写 — 未启用（术语映射: {', '.join(term_log)}）")
             return mapped, mapped, mapped
 
-        # ---- 阶段 1：三路 LLM 改写 ----
-        nl_query = self._generate_nl(mapped)
-        hyde_passage = self._generate_hyde(mapped)
-        kw_string = self._generate_kw(mapped)
+        # ---- 阶段 1：三路 LLM 改写（三路彼此独立，并行执行） ----
+        nl_query, hyde_passage, kw_string = run_parallel_captured(
+            [
+                lambda: self._generate_nl(mapped),
+                lambda: self._generate_hyde(mapped),
+                lambda: self._generate_kw(mapped),
+            ],
+            max_workers=config.QUERY_REWRITE_MAX_CONCURRENCY,
+        )
 
-        self._log("步骤 3.1：三路查询改写")
+        self._log("步骤 3.1：三路查询改写（并行）")
         self._log(f"  原始查询: {query}")
         if term_log:
             self._log(f"  术语映射: {', '.join(term_log)}")

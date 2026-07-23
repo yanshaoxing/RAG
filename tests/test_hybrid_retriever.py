@@ -146,3 +146,36 @@ class TestRRFFusion:
         vec = [_node(f"v{i}", 0.9 - i * 0.01) for i in range(8)]
         out = _build_retriever(vec, [])._single_query_retrieve("测试查询")
         assert len(out) == 3
+
+
+# ---------- 子查询并行检索 ----------
+
+class _FakeDecomposer:
+    def __init__(self, sub_queries):
+        self._subs = sub_queries
+
+    def decompose(self, query):
+        return True, list(self._subs)
+
+
+class TestDecomposedRetrieve:
+    def test_parallel_subqueries_merged_dedup(self, _rrf_config, monkeypatch):
+        monkeypatch.setattr(config, "SUBQUERY_MAX_CONCURRENCY", 2)
+        vec = [_node("shared", 0.9), _node("v_only", 0.8)]
+        bm25 = [_node("shared", 5.0), _node("b_only", 4.0)]
+        retriever = HybridRetriever(
+            vector_retriever=_FakeRetriever(vec),
+            bm25_retriever=_FakeRetriever(bm25),
+            reranker=None,
+            query_rewriter=None,
+            summary_meta_map={},
+            decomposer=_FakeDecomposer(["子查询甲内容", "子查询乙内容"]),
+        )
+        out = retriever._retrieve(QueryBundle("复杂查询"))
+        ids = [n.node.node_id for n in out]
+        # 两个子查询命中相同节点 → 去重后每个 id 只出现一次
+        assert len(ids) == len(set(ids))
+        assert set(ids) == {"shared", "v_only", "b_only"}
+        # 合并后按分数降序
+        scores = [n.score for n in out]
+        assert scores == sorted(scores, reverse=True)

@@ -21,6 +21,7 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from rag import config
 from rag.retrieval.reranker import Reranker
 from rag.retrieval.query_rewriter import QueryRewriter
+from rag.utils.concurrency import run_parallel_captured
 
 logger = logging.getLogger(__name__)
 
@@ -197,15 +198,28 @@ class HybridRetriever(BaseRetriever):
     # ---------- 多子查询分解检索 ----------
 
     def _decomposed_retrieve(self, sub_queries: list[str]) -> list[NodeWithScore]:
-        """对每个子查询独立执行完整检索管线，合并去重后返回。"""
+        """对每个子查询独立执行完整检索管线（子查询间并行），合并去重后返回。"""
+
+        total = len(sub_queries)
+        self._log(
+            f"步骤 3.0b：并行检索 {total} 个子查询"
+            f"（并发={min(config.SUBQUERY_MAX_CONCURRENCY, total)}）"
+        )
+
+        def _make_task(idx: int, sq: str):
+            def _task() -> list[NodeWithScore]:
+                # 头部日志在 worker 内输出，随该子查询的日志组一起按序回放
+                self._log(f"—— 子查询 {idx}/{total}: {sq}")
+                return self._single_query_retrieve(sq)
+            return _task
+
+        sub_results: list[list[NodeWithScore]] = run_parallel_captured(
+            [_make_task(i, sq) for i, sq in enumerate(sub_queries, start=1)],
+            max_workers=config.SUBQUERY_MAX_CONCURRENCY,
+        )
 
         all_nodes: dict[str, NodeWithScore] = {}
-        sub_results: list[list[NodeWithScore]] = []
-
-        for i, sq in enumerate(sub_queries, start=1):
-            self._log(f"步骤 3.0b：子查询 {i}/{len(sub_queries)} 检索 → {sq}")
-            nodes = self._single_query_retrieve(sq)
-            sub_results.append(nodes)
+        for nodes in sub_results:
             for n in nodes:
                 nid = n.node.node_id
                 if nid not in all_nodes or n.score > all_nodes[nid].score:
