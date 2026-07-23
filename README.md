@@ -664,9 +664,9 @@ rag/
   llm/          Davy / Ollama LLM 工厂（重试、真流式）
   utils/        JSON 解析、原子写入、分词、并行工具
 scripts/        图谱构建 / 可视化脚本
-tests/          离线单测（196 例）
+tests/          离线单测（200 例）
 corpora/        每本书一个语料目录（corpus.json + raw/ + 术语表 + 图谱规则 + data/ 索引）
 assets/         CA 证书
 ```
 
-更多架构细节与开发约定见 [CLAUDE.md](CLAUDE.md)；设计流程与实现的逐条核对见[流程核对报告](流程核对报告.md)。
+更多架构细节与开发约定见 [CLAUDE.md](CLAUDE.md)。
