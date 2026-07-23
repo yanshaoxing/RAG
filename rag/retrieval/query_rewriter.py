@@ -12,6 +12,7 @@
 
 import json
 import logging
+import re
 from typing import Optional
 
 from llama_index.core.llms import ChatMessage, MessageRole, CustomLLM
@@ -49,17 +50,27 @@ class QueryRewriter:
         return dict(sorted(raw.items(), key=lambda kv: len(kv[0]), reverse=True))
 
     def _apply_term_map(self, query: str) -> tuple[str, list[str]]:
-        """对查询做术语映射替换，返回 (替换后查询, 替换日志列表)。"""
+        """对查询做术语映射替换（单遍、最长匹配优先），返回 (替换后查询, 替换日志列表)。
+
+        用正则交替一次性替换：只匹配原始查询中的词条，替换结果不参与再次匹配
+        （逐词条 str.replace 会级联——长词条的替换结果被短词条二次替换）。
+        """
         if not self._term_map:
             return query, []
 
-        result = query
+        # _load_term_map 已按 key 长度降序排序，交替分支顺序即最长匹配优先
+        pattern = re.compile("|".join(re.escape(k) for k in self._term_map))
         replaced: list[str] = []
-        for slang, original in self._term_map.items():
-            if slang in result:
-                result = result.replace(slang, original)
-                replaced.append(f"{slang} → {original}")
 
+        def _sub(m: re.Match) -> str:
+            slang = m.group()
+            original = self._term_map[slang]
+            entry = f"{slang} → {original}"
+            if entry not in replaced:
+                replaced.append(entry)
+            return original
+
+        result = pattern.sub(_sub, query)
         return result, replaced
 
     # ---------- 阶段 1：三路 LLM 改写 ----------

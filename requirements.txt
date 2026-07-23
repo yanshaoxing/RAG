@@ -14,3 +14,4 @@ json_repair==0.61.7
 networkx==3.6.1
 pyvis==0.3.2
 requests>=2.31
+pytest==9.1.1
