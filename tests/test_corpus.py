@@ -1,4 +1,4 @@
-"""rag/corpus.py + 语料级规则合并单测（离线，无 LLM）。"""
+"""rag/corpus.py + 语料级规则合并 + 激活语料切换单测（离线，无 LLM）。"""
 
 import json
 import os
@@ -7,6 +7,16 @@ import pytest
 
 from rag import config, corpus
 from rag.graph import extractor
+
+
+def _make_corpus(root, slug, title):
+    corpus_dir = root / slug
+    corpus_dir.mkdir(parents=True)
+    (corpus_dir / "corpus.json").write_text(
+        json.dumps({"title": title, "context": f"《{title}》背景"}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return corpus_dir
 
 
 def test_load_active_profile():
@@ -75,3 +85,68 @@ def test_active_corpus_graph_rules_loaded():
     # 默认语料的补充规则应真实并入（《遥远的救世主》角色名单）
     rules = extractor._load_rules()
     assert "丁元英" in rules["known_male_characters"]
+
+
+# ======================== 激活语料切换（多书） ========================
+
+def test_set_active_corpus_switches_config_paths(tmp_path, monkeypatch):
+    _make_corpus(tmp_path, "BookA", "甲书")
+    _make_corpus(tmp_path, "BookB", "乙书")
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    original = corpus.get_active_slug()
+    try:
+        corpus.set_active_corpus("BookA")
+        assert corpus.get_active_profile().title == "甲书"
+        # config 动态路径实时跟随激活语料
+        assert os.path.normpath(config.CHUNKS_DIR) == os.path.normpath(
+            str(tmp_path / "BookA" / "data" / "chunks"))
+        corpus.set_active_corpus("BookB")
+        assert corpus.get_active_profile().title == "乙书"
+        assert "BookB" in config.PERSIST_DIR
+        assert "BookB" in config.TERM_MAP_PATH
+    finally:
+        corpus._active_slug = original
+
+
+def test_set_active_corpus_invalid_keeps_state(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    original = corpus.get_active_slug()
+    with pytest.raises(FileNotFoundError):
+        corpus.set_active_corpus("不存在")
+    # 切换失败不改变激活语料
+    assert corpus.get_active_slug() == original
+
+
+def test_list_corpora(tmp_path, monkeypatch):
+    _make_corpus(tmp_path, "BookB", "乙书")
+    _make_corpus(tmp_path, "BookA", "甲书")
+    (tmp_path / "not_a_corpus").mkdir()  # 无 corpus.json，应被跳过
+    bad = _make_corpus(tmp_path, "BookC", "残书")
+    (bad / "corpus.json").write_text("{}", encoding="utf-8")  # 缺必需字段，跳过
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    profiles = corpus.list_corpora()
+    assert [p.slug for p in profiles] == ["BookA", "BookB"]
+    assert [p.title for p in profiles] == ["甲书", "乙书"]
+
+
+def test_query_rewriter_binds_prompts_at_init(tmp_path, monkeypatch):
+    """引擎与语料绑定：Rewriter 构造时固化 prompt，之后切书不影响已建实例。"""
+    from rag.retrieval.query_rewriter import QueryRewriter
+
+    _make_corpus(tmp_path, "BookA", "甲书")
+    _make_corpus(tmp_path, "BookB", "乙书")
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    original = corpus.get_active_slug()
+    try:
+        corpus.set_active_corpus("BookA")
+        rewriter_a = QueryRewriter(enabled=False)
+        assert "甲书" in rewriter_a._nl_prompt
+        assert "《甲书》背景" in rewriter_a._hyde_prompt
+        # 切书后：新实例绑定新语料，旧实例保持原语料
+        corpus.set_active_corpus("BookB")
+        rewriter_b = QueryRewriter(enabled=False)
+        assert "乙书" in rewriter_b._nl_prompt
+        assert "甲书" in rewriter_a._nl_prompt
+        assert "乙书" not in rewriter_a._kw_prompt
+    finally:
+        corpus._active_slug = original

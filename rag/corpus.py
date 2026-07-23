@@ -7,16 +7,21 @@
   graph_rules.json   可选：图谱规则补充（与 rag/graph/rules.json 基础规则合并）
   data/              5 阶段索引持久化目录（重建时整体删除即可）
 
-激活语料由环境变量 RAG_CORPUS 选择（默认 config.DEFAULT_CORPUS），
-config.py 的持久化路径常量全部随之派生；prompts.py 的模板在访问时
-注入激活语料的 title / context（见 prompts.__getattr__）。
+激活语料启动时由环境变量 RAG_CORPUS 选择（默认 config.DEFAULT_CORPUS），
+运行期可用 set_active_corpus() 切换；config.py 的持久化路径常量（动态属性）
+与 prompts.py 的模板注入均实时跟随激活语料。
+
+多语料并存约定：查询期依赖语料的状态（索引 / 图存储 / QueryRewriter 的
+prompt 与术语表）全部在引擎构建时绑定，切换激活语料不影响已构建的引擎；
+构建期组件（摘要树 / 图谱 prompt、图规则）读取激活语料，因此构建必须在
+bootstrap 的构建锁内、切换激活语料后进行。
 """
 
 import json
 import logging
 import os
+import threading
 from dataclasses import dataclass, field
-from functools import lru_cache
 
 from rag import config
 
@@ -79,9 +84,59 @@ def load_profile(slug: str) -> CorpusProfile:
     )
 
 
-@lru_cache(maxsize=None)
-def get_active_profile() -> CorpusProfile:
-    """激活语料的档案（进程内缓存；激活语料由 RAG_CORPUS / config.ACTIVE_CORPUS 决定）。"""
-    profile = load_profile(config.ACTIVE_CORPUS)
-    logger.info("激活语料：%s（《%s》）", profile.slug, profile.title)
+# ---------- 激活语料（进程级状态，启动默认 = RAG_CORPUS / config.DEFAULT_CORPUS） ----------
+
+_active_lock = threading.Lock()
+_active_slug: str = config.ACTIVE_CORPUS
+_profile_cache: dict[str, CorpusProfile] = {}
+
+
+def get_active_slug() -> str:
+    """当前激活语料的 slug。"""
+    return _active_slug
+
+
+def set_active_corpus(slug: str) -> CorpusProfile:
+    """切换激活语料（先校验档案可加载，失败不改变现状态）。
+
+    切换只影响之后的构建/prompt 渲染；已构建的引擎绑定各自语料，不受影响。
+    """
+    global _active_slug
+    profile = load_profile(slug)  # 校验：目录/corpus.json/必需字段
+    with _active_lock:
+        if slug != _active_slug:
+            logger.info("切换激活语料：%s → %s（《%s》）", _active_slug, slug, profile.title)
+            _active_slug = slug
+        _profile_cache[slug] = profile
     return profile
+
+
+def get_active_profile() -> CorpusProfile:
+    """激活语料的档案（按 slug 缓存，进程内同一 slug 只读一次盘）。"""
+    slug = _active_slug
+    profile = _profile_cache.get(slug)
+    if profile is None:
+        profile = load_profile(slug)
+        with _active_lock:
+            _profile_cache[slug] = profile
+        logger.info("激活语料：%s（《%s》）", profile.slug, profile.title)
+    return profile
+
+
+def list_corpora() -> list[CorpusProfile]:
+    """扫描 corpora/ 下所有含 corpus.json 的语料目录，按 slug 排序返回档案列表。
+
+    档案损坏的目录记 warning 后跳过，不影响其他语料。
+    """
+    root = config.CORPORA_ROOT
+    if not os.path.isdir(root):
+        return []
+    profiles = []
+    for name in sorted(os.listdir(root)):
+        if not os.path.exists(os.path.join(root, name, "corpus.json")):
+            continue
+        try:
+            profiles.append(load_profile(name))
+        except (ValueError, json.JSONDecodeError) as e:
+            logger.warning("语料 %s 的档案无效，已跳过：%s", name, e)
+    return profiles

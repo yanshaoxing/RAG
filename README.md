@@ -581,7 +581,7 @@ python scripts/visualize_graph.py 150         # top-150
 
 ## 多书语料
 
-每本书一个目录 `corpora/<slug>/`，激活语料由环境变量 `RAG_CORPUS` 选择（默认 `YaoYuanDeJiuShiZhu`）：
+每本书一个目录 `corpora/<slug>/`，启动默认语料由环境变量 `RAG_CORPUS` 选择（默认 `YaoYuanDeJiuShiZhu`）；运行期可切换：CLI 用 `--corpus <slug>`（`--list` 列书），Web UI 在侧边栏选书（每本书独立引擎缓存与对话历史，多引擎同进程并存）。仓库自带微型演示语料 `WuLingChaShi`（《雾岭茶事》，已构建索引），可直接体验双书切换：
 
 ```
 corpora/<slug>/
@@ -592,7 +592,7 @@ corpora/<slug>/
   data/              5 阶段索引产物（重建时删除对应子目录即可）
 ```
 
-prompt 模板不含任何书名/人物硬编码：语料相关模板带 `{book_title}` / `{corpus_context}` 标记，访问时由 `rag/prompts.py` 的 `__getattr__` 注入激活语料档案（`rag/corpus.py`）。新增一本书 = 新建 `corpora/<新slug>/`（corpus.json + raw/），`RAG_CORPUS=<新slug>` 启动即自动构建索引。
+prompt 模板不含任何书名/人物硬编码：语料相关模板带 `{book_title}` / `{corpus_context}` 标记，访问时由 `rag/prompts.py` 的 `__getattr__` 注入激活语料档案（`rag/corpus.py`）。config 的语料相关路径为动态属性，实时跟随激活语料。并发约定：查询期语料状态在**引擎构建时绑定**（索引/图存储/改写 prompt+术语表），切书不影响已建引擎；构建在全局构建锁内进行。新增一本书 = 新建 `corpora/<新slug>/`（corpus.json + raw/），选中该书即自动构建索引。
 
 ## 索引重建
 
@@ -615,7 +615,7 @@ prompt 模板不含任何书名/人物硬编码：语料相关模板带 `{book_t
 - **嵌套并发上限**：子查询（2）× 三路改写（2）最坏并发 4 > Davy 的 429 阈值 2，靠重试退避兜底。
 - **BM25 阶段约 2 倍内存**（全量 `model_copy` + `original_text` 元数据）：单本小说规模无碍，扩大语料前需改。
 - **密钥明文默认值**：内网工具，可用环境变量覆盖，属有意选择。
-- **单进程单语料**：语料档案/prompt 注入已语料无关化，但一个进程只服务一本书（`RAG_CORPUS` 启动时选定）；多书并存查询（多 engine / 跨书路由）尚未实现。
+- **切书粒度为引擎级**：多书并存靠"每书一个引擎"，无跨书混合检索/自动路由（有意取舍——跨书混检会互相污染 BM25 词频、rerank 与图谱实体归一化）。
 
 ## 目录结构
 

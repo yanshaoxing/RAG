@@ -30,6 +30,11 @@ class QueryRewriter:
         self._enabled = enabled
         self._llm = llm
         self._term_map: dict[str, str] = self._load_term_map()
+        # 构造时固化三路 prompt（渲染为当前激活语料的版本）：
+        # 引擎与语料一一绑定，之后切换激活语料不影响本实例
+        self._nl_prompt = prompts.REWRITE_NL_PROMPT
+        self._hyde_prompt = prompts.REWRITE_HYDE_PROMPT
+        self._kw_prompt = prompts.REWRITE_KW_PROMPT
 
     @staticmethod
     def _log(msg: str):
@@ -91,7 +96,7 @@ class QueryRewriter:
 
     def _generate_nl(self, mapped_query: str) -> str:
         """路径 A：自然语言改写（贴近原著措辞）。"""
-        prompt = prompts.REWRITE_NL_PROMPT.format(query=mapped_query)
+        prompt = self._nl_prompt.format(query=mapped_query)
         try:
             return self._call_llm(prompt)
         except Exception as e:
@@ -100,7 +105,7 @@ class QueryRewriter:
 
     def _generate_hyde(self, mapped_query: str) -> str:
         """路径 B：HyDE 假设性回答段落。"""
-        prompt = prompts.REWRITE_HYDE_PROMPT.format(query=mapped_query)
+        prompt = self._hyde_prompt.format(query=mapped_query)
         try:
             return self._call_llm(prompt)
         except Exception as e:
@@ -109,7 +114,7 @@ class QueryRewriter:
 
     def _generate_kw(self, mapped_query: str) -> str:
         """路径 C：BM25 关键词扩展。"""
-        prompt = prompts.REWRITE_KW_PROMPT.format(query=mapped_query)
+        prompt = self._kw_prompt.format(query=mapped_query)
         try:
             result = self._call_llm(prompt)
             return self._dedup_kw(result)

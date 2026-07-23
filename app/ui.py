@@ -2,10 +2,11 @@
 Streamlit Web 入口 —— 完整的 RAG 检索问答流程，用于客户端使用。
 
 调用链:
-  config → bootstrap.build_query_engine → query_engine → 查询输出
+  config → bootstrap.build_query_engine(corpus_slug) → query_engine → 查询输出
 
-装配逻辑统一在 rag/engine/bootstrap.py；检索日志通过
-capture_pipeline_logs 按查询捕获（与 @st.cache_resource 缓存的引擎解耦，
+多书：侧边栏选书，引擎按语料 slug 缓存（@st.cache_resource 带参数），
+对话历史每本书独立。装配逻辑统一在 rag/engine/bootstrap.py；检索日志通过
+capture_pipeline_logs 按查询捕获（与缓存的引擎解耦，
 不再出现"第二次查询起日志为空"的问题）。
 """
 
@@ -13,40 +14,62 @@ import logging
 
 import streamlit as st
 
+from rag import corpus
 from rag.engine.bootstrap import init_settings, build_query_engine, format_source_nodes
 from rag.logging_utils import capture_pipeline_logs
 
 logger = logging.getLogger(__name__)
 
 st.set_page_config(page_title="知识库问答", page_icon="📚")
-st.title("📚 内部知识库问答")
+
+# ---------- 侧边栏：选书 ----------
+profiles = corpus.list_corpora()
+if not profiles:
+    st.error("corpora/ 下没有可用语料，请先创建语料目录（corpus.json + raw/）")
+    st.stop()
+
+slugs = [p.slug for p in profiles]
+default_idx = slugs.index(corpus.get_active_slug()) if corpus.get_active_slug() in slugs else 0
+with st.sidebar:
+    st.header("📖 选择书目")
+    selected = st.selectbox(
+        "语料",
+        profiles,
+        index=default_idx,
+        format_func=lambda p: f"《{p.title}》",
+    )
+    if selected.description:
+        st.caption(selected.description)
+
+st.title(f"📚 《{selected.title}》知识库问答")
 
 
-# ---------- 加载索引（自动判断构建/加载，进程内只执行一次） ----------
+# ---------- 加载索引（按语料缓存，进程内每本书只构建一次） ----------
 @st.cache_resource
-def load_index_and_engine():
-    """初始化 Settings 并加载/构建索引，组装检索 + 查询引擎。"""
+def load_index_and_engine(slug: str):
+    """初始化 Settings 并加载/构建指定语料的索引，组装检索 + 查询引擎。"""
     init_settings()
-    return build_query_engine()
+    return build_query_engine(slug)
 
 
-# ---------- 对话管理 ----------
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# ---------- 对话管理（每本书独立历史） ----------
+if "messages_by_corpus" not in st.session_state:
+    st.session_state.messages_by_corpus = {}
+messages = st.session_state.messages_by_corpus.setdefault(selected.slug, [])
 
 # 渲染历史消息
-for msg in st.session_state.messages:
+for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
 # ---------- 查询入口 ----------
 if prompt := st.chat_input("请输入你的问题"):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+    messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     try:
-        query_engine = load_index_and_engine()
+        query_engine = load_index_and_engine(selected.slug)
     except Exception as e:
         st.error(f"索引加载/构建失败: {e}")
         st.stop()
@@ -91,4 +114,4 @@ if prompt := st.chat_input("请输入你的问题"):
                 for line in run_logs:
                     st.text(line)
 
-    st.session_state.messages.append({"role": "assistant", "content": answer})
+    messages.append({"role": "assistant", "content": answer})

@@ -2,8 +2,10 @@
 CLI 入口 —— 完整的 RAG 检索问答流程。
 
 用法：
-  python -m app.cli "你的问题"    # 单次查询
-  python -m app.cli               # 交互模式：索引加载一次，循环提问（exit/quit/空行 退出）
+  python -m app.cli "你的问题"              # 单次查询（默认语料）
+  python -m app.cli --corpus <slug> "问题"  # 指定语料（书）查询
+  python -m app.cli --list                  # 列出全部可用语料
+  python -m app.cli                         # 交互模式：索引加载一次，循环提问（exit/quit/空行 退出）
 
 流程：
   步骤 0：开始运行
@@ -14,8 +16,10 @@ CLI 入口 —— 完整的 RAG 检索问答流程。
   步骤 5：输出参考文献
 """
 
+import argparse
 import sys
 
+from rag import corpus
 from rag.engine.bootstrap import init_settings, build_query_engine, format_source_nodes
 from rag.logging_utils import capture_pipeline_logs
 
@@ -25,7 +29,7 @@ def print_step(msg: str):
     print(msg, flush=True)
 
 
-def build_engine():
+def build_engine(corpus_slug=None):
     """初始化 Settings 并构建查询引擎（交互模式下只执行一次）。"""
     # ---- 步骤 0 ----
     print_step("步骤 0：开始运行")
@@ -40,7 +44,7 @@ def build_engine():
 
     with capture_pipeline_logs() as cap:
         try:
-            query_engine = build_query_engine()
+            query_engine = build_query_engine(corpus_slug)
         except Exception as e:
             for line in cap.drain():
                 print(f"  {line}")
@@ -113,7 +117,34 @@ def interactive_loop(query_engine) -> None:
 
 # ======================== 主入口 ========================
 if __name__ == "__main__":
-    q = " ".join(sys.argv[1:]).strip()
+    parser = argparse.ArgumentParser(prog="python -m app.cli", description="RAG 检索问答 CLI")
+    parser.add_argument("question", nargs="*", help="问题（省略则进入交互模式）")
+    parser.add_argument("-c", "--corpus", default=None, metavar="SLUG",
+                        help="语料（书）slug，默认取 RAG_CORPUS / 配置默认语料")
+    parser.add_argument("--list", action="store_true", help="列出全部可用语料后退出")
+    args = parser.parse_args()
+
+    if args.list:
+        profiles = corpus.list_corpora()
+        if not profiles:
+            print("（corpora/ 下没有可用语料）")
+        for p in profiles:
+            marker = " *" if p.slug == corpus.get_active_slug() else ""
+            print(f"  {p.slug}  《{p.title}》{marker}  {p.description}")
+        raise SystemExit(0)
+
+    if args.corpus:
+        try:
+            profile = corpus.set_active_corpus(args.corpus)
+        except (FileNotFoundError, ValueError) as e:
+            available = "、".join(p.slug for p in corpus.list_corpora()) or "（无）"
+            print(f"{e}\n可用语料：{available}", file=sys.stderr)
+            raise SystemExit(1)
+    else:
+        profile = corpus.get_active_profile()
+    print(f"当前语料：《{profile.title}》（{profile.slug}）", flush=True)
+
+    q = " ".join(args.question).strip()
     engine = build_engine()
     if q:
         # 单次模式：查询失败以非 0 退出码结束，便于脚本化调用判断

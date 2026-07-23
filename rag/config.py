@@ -42,8 +42,35 @@ _load_env_file()
 # ============================================================
 CORPORA_ROOT = os.path.join(os.path.dirname(__file__), "..", "corpora")
 DEFAULT_CORPUS = "YaoYuanDeJiuShiZhu"
+# 启动默认激活语料；运行期切换用 rag.corpus.set_active_corpus()
 ACTIVE_CORPUS = os.environ.get("RAG_CORPUS", DEFAULT_CORPUS)
-CORPUS_DIR = os.path.join(CORPORA_ROOT, ACTIVE_CORPUS)
+
+# 语料相关路径为【动态属性】（见文件末尾 __getattr__）：
+# 随 rag.corpus 的激活语料实时计算，切书后 config.CHUNKS_DIR 等自动指向新语料。
+# 名称 → 语料目录内的相对路径（"" = 语料根目录）
+_CORPUS_RELATIVE_PATHS = {
+    "CORPUS_DIR": "",
+    "TERM_MAP_PATH": "terminology.json",
+    "GRAPH_RULES_PATH": "graph_rules.json",
+    "DATA_DIR": "raw",
+    "PERSIST_DIR": "data/vector",
+    "FAISS_PERSIST_DIR": "data/vector/faiss",
+    "BM25_DIR": "data/bm25",
+    "SUMMARY_TREE_DIR": "data/summary_tree",
+    "CHUNKS_DIR": "data/chunks",
+    "GRAPH_DB_DIR": "data/graph_db",
+    "EMBED_CHECKPOINT_DIR": "data/embed_cache",
+}
+
+
+def __getattr__(name: str) -> str:
+    """PEP 562：语料相关路径按当前激活语料实时计算（读取即最新，无缓存）。"""
+    rel = _CORPUS_RELATIVE_PATHS.get(name)
+    if rel is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    from rag.corpus import get_active_slug  # 延迟导入避免循环依赖
+    base = os.path.join(CORPORA_ROOT, get_active_slug())
+    return os.path.join(base, *rel.split("/")) if rel else base
 
 # ============================================================
 # 公网（阿里云）端点 —— provider="aliyun" 时使用
@@ -81,8 +108,8 @@ EMBED_VECTOR_DIM = 1024 if EMBED_PROVIDER == "aliyun" else 4096
 EMBED_TIMEOUT = 300.0              # embedding 请求超时（秒），独立于回答 LLM 超时
 
 # embedding 断点续传：分段计算并落盘，向量阶段中断后续跑只补缺失段。
-# 缓存目录独立于向量阶段目录（该目录在阶段重建时会被整体删除），随语料切换
-EMBED_CHECKPOINT_DIR = os.path.join(CORPUS_DIR, "data", "embed_cache")
+# 缓存目录 EMBED_CHECKPOINT_DIR（动态属性）独立于向量阶段目录
+# （该目录在阶段重建时会被整体删除），随语料切换
 EMBED_CHECKPOINT_SEGMENT_NODES = 256   # 每段节点数（续传粒度；也限制了单次请求体大小）
 
 # ============================================================
@@ -212,22 +239,9 @@ SUMMARY_LEAF_BATCH_SIZE = 5      # 每次 LLM 调用合并的 chunk 数（减少
 SUMMARY_LLM_TEMPERATURE = 0.1
 
 # ============================================================
-# 语料级资产（随书切换）：术语映射 + 图谱规则补充（均可缺省）
+# 语料级资产与持久化路径 —— 均为动态属性（见文件开头 _CORPUS_RELATIVE_PATHS），
+# 随激活语料实时派生：corpora/<slug>/{terminology.json, graph_rules.json, raw/, data/*}
 # ============================================================
-TERM_MAP_PATH = os.path.join(CORPUS_DIR, "terminology.json")
-GRAPH_RULES_PATH = os.path.join(CORPUS_DIR, "graph_rules.json")
-
-# ============================================================
-# 持久化路径 —— 全部派生自激活语料目录（corpora/<slug>/data/）
-# ============================================================
-_CORPUS_DATA_DIR = os.path.join(CORPUS_DIR, "data")
-PERSIST_DIR = os.path.join(_CORPUS_DATA_DIR, "vector")
-FAISS_PERSIST_DIR = os.path.join(_CORPUS_DATA_DIR, "vector", "faiss")
-BM25_DIR = os.path.join(_CORPUS_DATA_DIR, "bm25")
-DATA_DIR = os.path.join(CORPUS_DIR, "raw")
-SUMMARY_TREE_DIR = os.path.join(_CORPUS_DATA_DIR, "summary_tree")
-CHUNKS_DIR = os.path.join(_CORPUS_DATA_DIR, "chunks")
-GRAPH_DB_DIR = os.path.join(_CORPUS_DATA_DIR, "graph_db")
 
 # ============================================================
 # 知识图谱（PropertyGraph + Kuzu）

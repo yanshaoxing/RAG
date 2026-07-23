@@ -6,7 +6,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Chinese-language multi-corpus RAG question-answering system over novels (default corpus:《遥远的救世主》), built on LlamaIndex. Combines hybrid retrieval (vector + BM25), a hierarchical summary tree, and a Kuzu knowledge graph. All code comments, log messages, and prompts are in Chinese — keep that convention.
 
-**Multi-corpus layout**: each book lives in `corpora/<slug>/` — `corpus.json` (required: `title`, `context`; optional `author`/`description`), `raw/` (source text), `terminology.json` (optional alias→canonical map), `graph_rules.json` (optional graph-rule additions, merged onto `rag/graph/rules.json`: lists unioned, scalars overridden), and `data/` (all 5 index stages + `graph_cache/` + `embed_cache/`). The active corpus is selected via `RAG_CORPUS` env var (default `config.DEFAULT_CORPUS` = `YaoYuanDeJiuShiZhu`); every persistence path in `rag/config.py` derives from it. `rag/corpus.py` loads the profile (`get_active_profile()`, process-cached). Book-specific content (title, character bios) belongs **only** in corpus assets — never hardcode it in code or prompt templates.
+**Multi-corpus layout**: each book lives in `corpora/<slug>/` — `corpus.json` (required: `title`, `context`; optional `author`/`description`), `raw/` (source text), `terminology.json` (optional alias→canonical map), `graph_rules.json` (optional graph-rule additions, merged onto `rag/graph/rules.json`: lists unioned, scalars overridden), and `data/` (all 5 index stages + `graph_cache/` + `embed_cache/`). Book-specific content (title, character bios) belongs **only** in corpus assets — never hardcode it in code or prompt templates. `WuLingChaShi` is a tiny built demo corpus used to exercise multi-book switching.
+
+**Active corpus & multi-engine**: `rag/corpus.py` holds the process-wide active corpus (startup default from `RAG_CORPUS` env / `config.DEFAULT_CORPUS`; switch with `set_active_corpus()`, enumerate with `list_corpora()`). All corpus-dependent paths in `rag/config.py` (`CHUNKS_DIR`, `TERM_MAP_PATH`, …, listed in `_CORPUS_RELATIVE_PATHS`) are **dynamic module attributes** (PEP 562) computed from the active corpus at access time — code reading `config.X` follows a switch automatically. The concurrency contract: query-time corpus state is **bound at engine construction** (indexes, graph store, `QueryRewriter` fixes its 3 prompts + term map in `__init__`), so engines for different books coexist in one process; build-time components (summary/graph prompts, graph rules) read the active corpus, so `bootstrap.build_query_engine(corpus_slug)` switches + builds under a global `_BUILD_LOCK`. Entry points: `python -m app.cli --corpus <slug>` / `--list`; the Streamlit UI has a sidebar book selector with per-book engine cache and chat history.
 
 Dependencies are pinned in `requirements.txt`; install into a venv (`python3 -m venv .venv && .venv/bin/pip install -r requirements.txt`). Default endpoints are **public Aliyun** (`provider="aliyun"`): chat + embedding on an ap-southeast-1 MaaS workspace, rerank on a cn-beijing workspace. API keys are read from `.env` at the repo root (gitignored — never hardcode them; `rag/config.py` loads `.env` at import). The old Lenovo-intranet configs (davy/ollama/vllm) are kept and switchable per role. **Do not point chat at `dashscope-us`** — that endpoint runs content inspection and 400-rejects the novel corpus (`data_inspection_failed`); the workspace deployment does not. Aliyun embedding is 1024-dim vs intranet 4096-dim: `EMBED_VECTOR_DIM` switches with `EMBED_PROVIDER`, and switching requires deleting `data/vector/` to rebuild.
 
@@ -14,7 +16,9 @@ Dependencies are pinned in `requirements.txt`; install into a venv (`python3 -m 
 
 ```bash
 # CLI query (run as a module from the repo root so `rag` is importable)
-python -m app.cli "你的问题"        # 单次查询
+python -m app.cli "你的问题"        # 单次查询（默认语料）
+python -m app.cli -c WuLingChaShi "你的问题"   # 指定语料（书）
+python -m app.cli --list           # 列出全部可用语料
 python -m app.cli                  # 交互模式：索引加载一次，循环提问（exit/quit/空行退出）
 
 # Streamlit web UI (run from repo root)

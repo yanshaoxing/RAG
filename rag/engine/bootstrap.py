@@ -6,6 +6,7 @@
 """
 
 import logging
+import threading
 from typing import Optional
 
 from llama_index.core import Settings
@@ -13,7 +14,7 @@ from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.embeddings.ollama import OllamaEmbedding
 from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 
-from rag import config
+from rag import config, corpus
 from rag.indexing.staged_indexer import get_or_build_index
 from rag.retrieval.reranker import Reranker
 from rag.retrieval.hybrid_retriever import HybridRetriever, _safe_text
@@ -46,8 +47,28 @@ def init_settings() -> None:
     Settings.llm = create_answer_llm()
 
 
-def build_query_engine() -> RetrieverQueryEngine:
-    """构建/加载索引并组装完整查询引擎（检索器 + 重排 + 图增强）。"""
+# 构建锁：索引构建/加载期间组件读取"激活语料"的全局状态（config 动态路径、
+# prompts 注入、图规则），并发切书构建会互相污染，全程持锁串行化。
+# 引擎构建完成后即与语料绑定（索引/图存储/rewriter prompt+术语表都在构建时固化），
+# 之后切换激活语料不影响已返回的引擎，多引擎可并存服务。
+_BUILD_LOCK = threading.Lock()
+
+
+def build_query_engine(corpus_slug: Optional[str] = None) -> RetrieverQueryEngine:
+    """构建/加载索引并组装完整查询引擎（检索器 + 重排 + 图增强）。
+
+    Args:
+        corpus_slug: 目标语料 slug（None = 当前激活语料）。传入时先切换激活语料。
+    """
+    with _BUILD_LOCK:
+        if corpus_slug:
+            corpus.set_active_corpus(corpus_slug)
+        profile = corpus.get_active_profile()
+        logger.info("为语料《%s》（%s）构建查询引擎", profile.title, profile.slug)
+        return _build_query_engine_locked()
+
+
+def _build_query_engine_locked() -> RetrieverQueryEngine:
     index, bm25_retriever, summary_meta_map, graph_index = get_or_build_index()
 
     # 动态兜底：确保 top_k 不超过实际文档数，避免空语料时报错
