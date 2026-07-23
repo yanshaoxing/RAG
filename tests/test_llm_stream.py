@@ -107,3 +107,64 @@ class TestStreamChat:
         responses, _ = _stream(monkeypatch, ["<think>只有思考</think>"])
         assert len(responses) == 1
         assert responses[-1].message.content == ""
+
+
+class _BrokenSSEResponse:
+    """iter_lines 在产出 n_before_break 个增量后抛异常的假响应。"""
+
+    def __init__(self, deltas, n_before_break: int):
+        self._deltas = deltas
+        self._n = n_before_break
+        self.closed = False
+
+    def iter_lines(self):
+        for i, d in enumerate(self._deltas):
+            if i >= self._n:
+                raise ConnectionError("stream broken")
+            payload = {"choices": [{"delta": {"content": d}}]}
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}".encode("utf-8")
+        raise ConnectionError("stream broken")
+
+    def close(self):
+        self.closed = True
+
+
+class TestStreamRetry:
+    """新缺陷 8 回归：未输出正文前断流整流重试一次；已有输出则照原样抛出。"""
+
+    def _patch_sequence(self, monkeypatch, responses):
+        seq = list(responses)
+        monkeypatch.setattr(
+            DavyLLM, "_post_with_retry",
+            lambda self, body, stream=False: seq.pop(0),
+        )
+
+    def test_break_before_output_retries_once(self, monkeypatch):
+        broken = _BrokenSSEResponse(["未及输出"], n_before_break=0)
+        good = _FakeSSEResponse(["重试", "成功"])
+        self._patch_sequence(monkeypatch, [broken, good])
+        llm = DavyLLM()
+        responses = list(llm.stream_chat([]))
+        assert responses[-1].message.content == "重试成功"
+        assert broken.closed and good.closed
+
+    def test_break_after_partial_output_raises(self, monkeypatch):
+        # 已输出部分正文后断流：重发不保证与已输出前缀一致，必须抛出
+        broken = _BrokenSSEResponse(["第一块", "第二块"], n_before_break=1)
+        self._patch_sequence(monkeypatch, [broken])
+        llm = DavyLLM()
+        gen = llm.stream_chat([])
+        assert next(gen).delta == "第一块"
+        with pytest.raises(ConnectionError):
+            list(gen)
+        assert broken.closed
+
+    def test_second_break_raises(self, monkeypatch):
+        # 重试后仍未输出即断流：不再重试，抛出
+        b1 = _BrokenSSEResponse([], n_before_break=0)
+        b2 = _BrokenSSEResponse([], n_before_break=0)
+        self._patch_sequence(monkeypatch, [b1, b2])
+        llm = DavyLLM()
+        with pytest.raises(ConnectionError):
+            list(llm.stream_chat([]))
+        assert b1.closed and b2.closed

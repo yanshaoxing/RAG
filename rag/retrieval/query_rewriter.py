@@ -86,7 +86,7 @@ class QueryRewriter:
         """调用 LLM 并返回原始文本，失败时返回空字符串。"""
         messages = [ChatMessage(role=MessageRole.USER, content=prompt)]
         llm = self._get_llm()
-        llm_response = llm.chat(messages=messages, temperature=config.REWRITE_OLLAMA_TEMPERATURE)
+        llm_response = llm.chat(messages=messages, temperature=config.REWRITE_TEMPERATURE)
         return str(llm_response.message.content).strip()
 
     def _generate_nl(self, mapped_query: str) -> str:

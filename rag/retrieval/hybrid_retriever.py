@@ -22,6 +22,7 @@ from rag import config
 from rag.retrieval.reranker import Reranker
 from rag.retrieval.query_rewriter import QueryRewriter
 from rag.utils.concurrency import run_parallel_captured
+from rag.utils.text import tokenize_for_bm25
 
 logger = logging.getLogger(__name__)
 
@@ -87,8 +88,11 @@ class HybridRetriever(BaseRetriever):
         vec_nl = self._vector_retriever.retrieve(QueryBundle(nl_query))
         # 路径 B：HyDE → 向量检索
         vec_hyde = self._vector_retriever.retrieve(QueryBundle(hyde_passage))
-        # 路径 C：关键词 → BM25 检索（关键词已是分词后形式，直接送入）
-        bm25_kw = self._bm25_retriever.retrieve(QueryBundle(kw_string))
+        # 路径 C：关键词 → BM25 检索。
+        # 送检前统一过 jieba 分词：BM25 语料是 jieba 分词后的空格串，
+        # 改写禁用/关键词路降级时 kw_string 是原始整句中文，不分词则得分全 0；
+        # LLM 输出的关键词串再过一遍 jieba 也能把词粒度对齐到语料 token。
+        bm25_kw = self._bm25_retriever.retrieve(QueryBundle(tokenize_for_bm25(kw_string)))
 
         # BM25 索引文本是分词后的，检索后恢复原始文本。
         # 注意：docstore 中的节点是共享对象（Streamlit 下跨会话复用），
@@ -218,17 +222,26 @@ class HybridRetriever(BaseRetriever):
             max_workers=config.SUBQUERY_MAX_CONCURRENCY,
         )
 
-        all_nodes: dict[str, NodeWithScore] = {}
+        # 按"子查询内名次"做 RRF 融合，而非直接比较 score ——
+        # 各子查询的 score 量纲可能不同（rerank 成功=cross-encoder 分，
+        # 降级=RRF 分，约差一个数量级），直接比较会系统性压制降级子查询的结果
+        fused_score: dict[str, float] = {}
+        node_map: dict[str, NodeWithScore] = {}
         for nodes in sub_results:
-            for n in nodes:
+            for rank, n in enumerate(nodes, start=1):
                 nid = n.node.node_id
-                if nid not in all_nodes or n.score > all_nodes[nid].score:
-                    all_nodes[nid] = n
+                fused_score[nid] = fused_score.get(nid, 0.0) + 1.0 / (config.RRF_K + rank)
+                if nid not in node_map:
+                    node_map[nid] = n
 
-        # 按分数降序排列
-        merged = sorted(all_nodes.values(), key=lambda n: n.score, reverse=True)
+        merged: list[NodeWithScore] = []
+        for nid in sorted(fused_score, key=fused_score.get, reverse=True):
+            node = node_map[nid]
+            node.score = fused_score[nid]
+            merged.append(node)
+
         self._log(
-            f"步骤 3.0c：子查询结果合并 — "
+            f"步骤 3.0c：子查询结果合并（名次 RRF 融合）— "
             f"{sum(len(r) for r in sub_results)} 条 → 去重 {len(merged)} 个唯一文档"
         )
 

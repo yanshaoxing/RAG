@@ -17,7 +17,6 @@ from datetime import datetime
 from typing import Optional, Tuple, List
 
 import faiss
-import jieba
 from llama_index.core import VectorStoreIndex, Document, Settings, StorageContext
 from llama_index.core import load_index_from_storage
 from llama_index.core.schema import TextNode
@@ -26,6 +25,7 @@ from llama_index.vector_stores.faiss import FaissVectorStore
 
 from rag import config
 from rag.utils.files import atomic_write_json, mark_stage_done, stage_complete
+from rag.utils.text import tokenize_for_bm25
 from rag.ingestion.preprocessor import load_documents, create_chunking_pipeline
 from rag.indexing.embedding_checkpoint import embed_nodes_with_checkpoint, clear_checkpoint
 from rag.summarization.summary_tree import build_summary_tree
@@ -37,11 +37,6 @@ logger = logging.getLogger(__name__)
 def _log(msg: str) -> None:
     """管线日志：经标准 logging 输出，入口层用 capture_pipeline_logs 捕获。"""
     logger.info(msg)
-
-
-def tokenize_for_bm25(text: str) -> str:
-    """中文分词后空格连接，供 BM25 索引构建和检索使用。"""
-    return " ".join(jieba.cut(text))
 
 
 # 阶段完成标记 / 原子写入工具（与 graph_constructor 共用）

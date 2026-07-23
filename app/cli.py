@@ -53,8 +53,8 @@ def build_engine():
     return query_engine
 
 
-def run_query(query_engine, question: str) -> None:
-    """对已构建的引擎执行一次查询并打印结果。"""
+def run_query(query_engine, question: str) -> bool:
+    """对已构建的引擎执行一次查询并打印结果。返回是否成功（供单次模式设置 exit code）。"""
     # ---- 步骤 3：执行查询 ----
     print_step("步骤 3：执行查询")
     with capture_pipeline_logs() as cap:
@@ -64,7 +64,7 @@ def run_query(query_engine, question: str) -> None:
             for line in cap.drain():
                 print(f"  {line}")
             print(f"查询失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
-            return
+            return False
 
     # ---- 打印检索日志 ----
     print("=" * 60, flush=True)
@@ -84,7 +84,7 @@ def run_query(query_engine, question: str) -> None:
             print(f"  {response}")
     except Exception as e:
         print(f"\n回答生成失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
-        return
+        return False
 
     # ---- 步骤 5：输出参考文献 ----
     print_step("步骤 5：输出参考文献")
@@ -93,6 +93,7 @@ def run_query(query_engine, question: str) -> None:
             print(f"  {title} | {preview}...")
     else:
         print("  （无参考文献）")
+    return True
 
 
 def interactive_loop(query_engine) -> None:
@@ -115,6 +116,8 @@ if __name__ == "__main__":
     q = " ".join(sys.argv[1:]).strip()
     engine = build_engine()
     if q:
-        run_query(engine, q)
+        # 单次模式：查询失败以非 0 退出码结束，便于脚本化调用判断
+        ok = run_query(engine, q)
+        raise SystemExit(0 if ok else 1)
     else:
         interactive_loop(engine)

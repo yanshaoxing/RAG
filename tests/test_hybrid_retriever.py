@@ -14,13 +14,15 @@ def _node(nid: str, score: float, text: str = "正文", **metadata) -> NodeWithS
 
 
 class _FakeRetriever(BaseRetriever):
-    """返回固定节点列表的假检索器。"""
+    """返回固定节点列表的假检索器（记录收到的查询串，供分词断言用）。"""
 
     def __init__(self, nodes: list[NodeWithScore]):
         super().__init__()
         self._nodes = nodes
+        self.queries: list[str] = []
 
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
+        self.queries.append(query_bundle.query_str)
         # 返回副本列表，模拟每次检索独立返回
         return list(self._nodes)
 
@@ -148,6 +150,45 @@ class TestRRFFusion:
         assert len(out) == 3
 
 
+class TestBM25QueryTokenization:
+    """新缺陷 2 回归：送入 BM25 的查询串必须是 jieba 分词后的空格形式。
+
+    改写禁用/降级时 kw_string 是原始整句中文，不分词则与分词后语料无法匹配（得分全 0）。
+    """
+
+    def test_raw_chinese_query_is_tokenized(self, _rrf_config):
+        bm25 = _FakeRetriever([_node("b1", 3.0)])
+        retriever = HybridRetriever(
+            vector_retriever=_FakeRetriever([]),
+            bm25_retriever=bm25,
+            reranker=None,
+            query_rewriter=None,   # 相当于改写禁用：三路都是原始查询
+            summary_meta_map={},
+            decomposer=None,
+        )
+        retriever._single_query_retrieve("丁元英的私募基金为什么解散")
+        assert len(bm25.queries) == 1
+        sent = bm25.queries[0]
+        assert " " in sent, "原始整句中文必须先分词再送 BM25"
+        assert sent.replace(" ", "") == "丁元英的私募基金为什么解散"
+
+    def test_already_spaced_keywords_stay_aligned(self, _rrf_config):
+        bm25 = _FakeRetriever([])
+        retriever = HybridRetriever(
+            vector_retriever=_FakeRetriever([]),
+            bm25_retriever=bm25,
+            reranker=None,
+            query_rewriter=None,
+            summary_meta_map={},
+            decomposer=None,
+        )
+        retriever._single_query_retrieve("丁元英 私募基金 解散")
+        sent = bm25.queries[0]
+        # 再过一遍 jieba 不丢词，且仍为空格分隔形式
+        assert sent.replace(" ", "") == "丁元英私募基金解散"
+        assert " " in sent
+
+
 # ---------- 子查询并行检索 ----------
 
 class _FakeDecomposer:
@@ -179,3 +220,38 @@ class TestDecomposedRetrieve:
         # 合并后按分数降序
         scores = [n.score for n in out]
         assert scores == sorted(scores, reverse=True)
+
+    def test_merge_is_rank_fusion_not_score_comparison(self, _rrf_config, monkeypatch):
+        """新缺陷 3 回归：子查询合并按名次 RRF 融合，不直接比较 score。
+
+        模拟量纲混用场景：子查询甲的结果带 rerank 高分（0.9），
+        子查询乙的结果带 RRF 低分（0.02）。若直接按 score 合并，
+        乙的结果永远垫底；名次融合下两个子查询的第 1 名应有相同融合分。
+        """
+        monkeypatch.setattr(config, "SUBQUERY_MAX_CONCURRENCY", 1)
+
+        sub_results = {
+            "甲高分子查询串": [_node("a1", 0.9), _node("a2", 0.8)],       # 模拟 rerank 分
+            "乙降级子查询串": [_node("b1", 0.02), _node("b2", 0.01)],     # 模拟 RRF 分
+        }
+        retriever = HybridRetriever(
+            vector_retriever=_FakeRetriever([]),
+            bm25_retriever=_FakeRetriever([]),
+            reranker=None,
+            query_rewriter=None,
+            summary_meta_map={},
+            decomposer=_FakeDecomposer(list(sub_results.keys())),
+        )
+        monkeypatch.setattr(
+            HybridRetriever, "_single_query_retrieve",
+            lambda self, q: list(sub_results[q]),
+        )
+
+        out = retriever._retrieve(QueryBundle("复杂查询"))
+        by_id = {n.node.node_id: n.score for n in out}
+        # 两个子查询各自的第 1 名融合分相同：1/(K+1)
+        assert by_id["a1"] == pytest.approx(1.0 / 61.0)
+        assert by_id["b1"] == pytest.approx(1.0 / 61.0)
+        # 乙的第 1 名必须排在甲的第 2 名之前（旧实现按 score 比较时恰好相反）
+        ids = [n.node.node_id for n in out]
+        assert ids.index("b1") < ids.index("a2")

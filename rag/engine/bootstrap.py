@@ -81,6 +81,11 @@ def format_source_nodes(source_nodes) -> list[tuple[str, str]]:
     """格式化参考文献列表，返回 [(标题行, 文本预览), ...]。"""
     results: list[tuple[str, str]] = []
     for i, node in enumerate(source_nodes, start=1):
+        # 图谱上下文节点没有 file_name/section，单独标注（避免显示为"未知"）
+        if node.metadata.get("is_graph_context"):
+            results.append((f"[{i}] 知识图谱关联信息", _safe_text(node)[:100].replace("\n", " ")))
+            continue
+
         fname = node.metadata.get("file_name", "未知")
         section = node.metadata.get("section_path", "") or node.metadata.get("section", "")
         is_summary = node.metadata.get("is_summary", False)

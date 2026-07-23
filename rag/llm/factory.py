@@ -260,48 +260,63 @@ class DavyLLM(CustomLLM):
 
     @llm_chat_callback()
     def stream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseGen:
-        """真流式：SSE 增量逐块 yield（思考块经 ThinkStreamFilter 增量剥离）。"""
+        """真流式：SSE 增量逐块 yield（思考块经 ThinkStreamFilter 增量剥离）。
+
+        断流重试：_post_with_retry 只覆盖建连/首包阶段，SSE 流中途断开时若
+        **尚未输出任何正文**（常见于连接建立后立即被掐断），整流重试一次；
+        已有部分输出则无法安全重试（重发的回答不保证与已输出前缀一致），照原样抛出。
+        """
         body = self._build_request_body(messages, **kwargs)
         body["stream"] = True
 
         def gen() -> ChatResponseGen:
-            think_filter = ThinkStreamFilter()
-            full_content = ""
-            response = self._post_with_retry(body, stream=True)
-            try:
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    line = line.decode("utf-8").strip()
-                    if line == "data: [DONE]":
-                        break
-                    if line.startswith("data: "):
-                        line = line[6:]
-                    try:
-                        chunk = json.loads(line)
-                        delta = chunk["choices"][0]["delta"].get("content", "")
-                    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
-                        continue
-                    if not delta:
-                        continue
-                    clean = think_filter.feed(delta)
-                    if clean:
-                        full_content += clean
+            max_stream_attempts = 2
+            for stream_attempt in range(max_stream_attempts):
+                think_filter = ThinkStreamFilter()
+                full_content = ""
+                emitted = False
+                response = self._post_with_retry(body, stream=True)
+                try:
+                    for line in response.iter_lines():
+                        if not line:
+                            continue
+                        line = line.decode("utf-8").strip()
+                        if line == "data: [DONE]":
+                            break
+                        if line.startswith("data: "):
+                            line = line[6:]
+                        try:
+                            chunk = json.loads(line)
+                            delta = chunk["choices"][0]["delta"].get("content", "")
+                        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                            continue
+                        if not delta:
+                            continue
+                        clean = think_filter.feed(delta)
+                        if clean:
+                            full_content += clean
+                            emitted = True
+                            yield ChatResponse(
+                                message=ChatMessage(role=MessageRole.ASSISTANT, content=full_content),
+                                delta=clean,
+                            )
+                    tail = think_filter.finalize()
+                    if tail:
+                        full_content += tail
+                    if tail or not full_content:
+                        # 输出残余；或全程无正文（如仅思考内容）时兜底 yield 一次空响应
                         yield ChatResponse(
                             message=ChatMessage(role=MessageRole.ASSISTANT, content=full_content),
-                            delta=clean,
+                            delta=tail,
                         )
-                tail = think_filter.finalize()
-                if tail:
-                    full_content += tail
-                if tail or not full_content:
-                    # 输出残余；或全程无正文（如仅思考内容）时兜底 yield 一次空响应
-                    yield ChatResponse(
-                        message=ChatMessage(role=MessageRole.ASSISTANT, content=full_content),
-                        delta=tail,
-                    )
-            finally:
-                response.close()
+                    return
+                except Exception as e:
+                    if emitted or stream_attempt >= max_stream_attempts - 1:
+                        raise
+                    logger.warning(f"Davy 流式响应中断（{e.__class__.__name__}），"
+                                   f"尚未输出正文，整流重试一次")
+                finally:
+                    response.close()
 
         return gen()
 
@@ -346,7 +361,7 @@ def create_rewrite_llm() -> CustomLLM:
     return Ollama(
         model=config.REWRITE_OLLAMA_MODEL,
         request_timeout=config.REWRITE_OLLAMA_TIMEOUT,
-        temperature=config.REWRITE_OLLAMA_TEMPERATURE,
+        temperature=config.REWRITE_TEMPERATURE,
     )
 
 
