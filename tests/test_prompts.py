@@ -32,13 +32,26 @@ def test_template_formats_cleanly(name):
         assert str(v) in result
 
 
-def test_novel_context_injected_into_rewrite_prompts():
-    # {novel_context} 标记应已被替换为原著背景，不残留
-    for name in ("REWRITE_NL_PROMPT", "REWRITE_HYDE_PROMPT", "REWRITE_KW_PROMPT"):
+def test_corpus_markers_injected():
+    # {book_title} / {corpus_context} 标记应已被替换为激活语料的书名/背景，不残留
+    from rag.corpus import get_active_profile
+
+    profile = get_active_profile()
+    for name in sorted(prompts._RAW_TEMPLATES):
         template = getattr(prompts, name)
-        assert "{novel_context}" not in template
-        assert "遥远的救世主" in template
-        assert "丁元英" in template
+        assert "{book_title}" not in template, name
+        assert "{corpus_context}" not in template, name
+        assert profile.title in template, name
+    # 三路改写模板还应包含完整背景块
+    for name in ("REWRITE_NL_PROMPT", "REWRITE_HYDE_PROMPT", "REWRITE_KW_PROMPT"):
+        assert profile.context in getattr(prompts, name)
+
+
+def test_raw_templates_have_no_book_hardcoding():
+    # 原始模板不得硬编码具体书名/人物（多书 RAG：语料信息只经档案注入）
+    for name, raw in prompts._RAW_TEMPLATES.items():
+        assert "遥远的救世主" not in raw, name
+        assert "丁元英" not in raw, name
 
 
 def test_no_double_escaped_query_placeholder():
