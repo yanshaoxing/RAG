@@ -558,10 +558,13 @@ python3 -m venv .venv
 
 ```bash
 # CLI（从仓库根目录以模块方式运行）
-python -m app.cli "丁元英的私募基金为什么解散"   # 单次查询
+python -m app.cli "丁元英的私募基金为什么解散"   # 单次查询（默认书）
+python -m app.cli --list                       # 列出全部可用书
+python -m app.cli -c WuLingChaShi "陈伯是谁？"   # 指定书查询
 python -m app.cli                              # 交互模式：索引加载一次，循环提问
+python -m app.cli -c WuLingChaShi              # 交互模式（指定书；整个会话绑定该书）
 
-# Streamlit Web UI
+# Streamlit Web UI（左侧边栏下拉框随时切书）
 streamlit run app/ui.py
 
 # 知识图谱构建（可断点续传）
@@ -581,7 +584,34 @@ python scripts/visualize_graph.py 150         # top-150
 
 ## 多书语料
 
-每本书一个目录 `corpora/<slug>/`，启动默认语料由环境变量 `RAG_CORPUS` 选择（默认 `YaoYuanDeJiuShiZhu`）；运行期可切换：CLI 用 `--corpus <slug>`（`--list` 列书），Web UI 在侧边栏选书（每本书独立引擎缓存与对话历史，多引擎同进程并存）。仓库自带微型演示语料 `WuLingChaShi`（《雾岭茶事》，已构建索引），可直接体验双书切换：
+每本书一个目录 `corpora/<slug>/`。仓库自带两本书：`YaoYuanDeJiuShiZhu`（《遥远的救世主》，默认书）和微型演示语料 `WuLingChaShi`（《雾岭茶事》，已构建索引），可直接体验双书切换。
+
+### 如何切书（三种方式）
+
+```bash
+# ① CLI：--corpus / -c 指定书（不带则用默认书；--list 先看有哪些书）
+python -m app.cli --list
+python -m app.cli -c WuLingChaShi "陈伯是谁？"
+python -m app.cli -c WuLingChaShi              # 交互模式整个会话绑定这本书，换书需退出重开
+
+# ② Web UI：运行中随时切
+streamlit run app/ui.py
+#    左侧边栏「📖 选择书目」下拉框切换；每本书首次选中时构建/加载引擎（之后缓存），
+#    对话历史各书独立，来回切换不丢
+
+# ③ 环境变量：改进程默认书（CLI 不带 -c 时的书 / UI 下拉框的初始选中项）
+RAG_CORPUS=WuLingChaShi python -m app.cli "问题"
+RAG_CORPUS=WuLingChaShi streamlit run app/ui.py
+```
+
+### 如何新增一本书
+
+1. 新建 `corpora/<新slug>/`，放入 `corpus.json`（必填 `title` 书名 + `context` 原著背景块，背景块会注入改写/摘要/图谱等 prompt，写得越具体检索质量越好）
+2. 原文（txt / docx）放入 `corpora/<新slug>/raw/`
+3. 可选：`terminology.json`（通俗名→原文术语）、`graph_rules.json`（图谱规则补充，如男性角色名单）
+4. 用上面任一方式选中该书 —— 首次选中自动构建全部索引（构建走 LLM，公网模型下注意语料规模与费用）
+
+### 目录约定
 
 ```
 corpora/<slug>/
@@ -592,7 +622,7 @@ corpora/<slug>/
   data/              5 阶段索引产物（重建时删除对应子目录即可）
 ```
 
-prompt 模板不含任何书名/人物硬编码：语料相关模板带 `{book_title}` / `{corpus_context}` 标记，访问时由 `rag/prompts.py` 的 `__getattr__` 注入激活语料档案（`rag/corpus.py`）。config 的语料相关路径为动态属性，实时跟随激活语料。并发约定：查询期语料状态在**引擎构建时绑定**（索引/图存储/改写 prompt+术语表），切书不影响已建引擎；构建在全局构建锁内进行。新增一本书 = 新建 `corpora/<新slug>/`（corpus.json + raw/），选中该书即自动构建索引。
+prompt 模板不含任何书名/人物硬编码：语料相关模板带 `{book_title}` / `{corpus_context}` 标记，访问时由 `rag/prompts.py` 的 `__getattr__` 注入激活语料档案（`rag/corpus.py`）。config 的语料相关路径为动态属性，实时跟随激活语料。并发约定：查询期语料状态在**引擎构建时绑定**（索引/图存储/改写 prompt+术语表），切书不影响已建引擎；构建在全局构建锁内进行。
 
 ## 索引重建
 
