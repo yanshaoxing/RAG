@@ -26,6 +26,9 @@ python scripts/build_full_graph.py 31        # resume from chunk 31
 # Visualize the graph (reads data/graph_cache/graph_db.db SQLite cache, outputs pyvis HTML)
 python scripts/visualize_graph.py            # top-80 entities by degree
 python scripts/visualize_graph.py 150        # top-150
+
+# Offline unit tests (no intranet/LLM needed; run before committing pipeline changes)
+.venv/bin/python -m pytest tests/ -q
 ```
 
 ### Rebuilding indexes
