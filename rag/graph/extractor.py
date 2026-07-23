@@ -22,14 +22,34 @@ logger = logging.getLogger(__name__)
 
 
 def _load_rules() -> dict:
-    """加载规则配置。"""
+    """加载规则配置：基础规则（rag/graph/rules.json，语料无关）+ 语料补充规则合并。
+
+    语料补充规则（corpora/<slug>/graph_rules.json，可缺省）按键合并：
+    列表取并集（保序去重），标量覆盖基础值。
+    """
     rules_path = os.path.join(os.path.dirname(__file__), "rules.json")
     try:
         with open(rules_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            rules = json.load(f)
     except Exception:
         logger.warning("无法加载 rules.json，使用空规则集")
-        return {}
+        rules = {}
+
+    try:
+        from rag import config
+        if os.path.exists(config.GRAPH_RULES_PATH):
+            with open(config.GRAPH_RULES_PATH, "r", encoding="utf-8") as f:
+                corpus_rules = json.load(f)
+            for key, value in corpus_rules.items():
+                base = rules.get(key)
+                if isinstance(value, list) and isinstance(base, list):
+                    rules[key] = list(dict.fromkeys(base + value))
+                else:
+                    rules[key] = value
+    except Exception as e:
+        logger.warning("无法加载语料补充规则 %s：%s", config.GRAPH_RULES_PATH, e)
+
+    return rules
 
 
 class Extractor:

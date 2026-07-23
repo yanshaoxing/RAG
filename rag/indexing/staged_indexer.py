@@ -278,7 +278,7 @@ def _stage_vector(all_nodes: list) -> VectorStoreIndex:
     vector_store = FaissVectorStore(faiss_index=faiss_index)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-    # 分段计算 embedding 并落盘（data/embed_cache/），中断后续跑只补缺失段；
+    # 分段计算 embedding 并落盘（语料的 data/embed_cache/），中断后续跑只补缺失段；
     # 节点已带 embedding，VectorStoreIndex 不会再调用 embed 模型
     embed_nodes_with_checkpoint(all_nodes, Settings.embed_model, label="向量索引")
     index = VectorStoreIndex(all_nodes, storage_context=storage_context)

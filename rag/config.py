@@ -9,6 +9,10 @@
 
 公网（阿里云）密钥只从环境变量 / 项目根目录 .env 读取（.env 已 gitignore，不入 git）：
   RAG_PUBLIC_CHAT_API_KEY / RAG_PUBLIC_EMBED_API_KEY / RAG_PUBLIC_RERANK_API_KEY
+
+多书语料：每本书一个目录 corpora/<slug>/（corpus.json + raw/ + terminology.json +
+graph_rules.json + data/ 各阶段索引）。激活语料由 RAG_CORPUS 环境变量选择，
+默认 DEFAULT_CORPUS。本文件的持久化路径全部从激活语料目录派生。
 """
 
 import os
@@ -32,6 +36,14 @@ def _load_env_file() -> None:
 
 
 _load_env_file()
+
+# ============================================================
+# 多书语料（corpus）—— 每本书一个 corpora/<slug>/ 目录
+# ============================================================
+CORPORA_ROOT = os.path.join(os.path.dirname(__file__), "..", "corpora")
+DEFAULT_CORPUS = "YaoYuanDeJiuShiZhu"
+ACTIVE_CORPUS = os.environ.get("RAG_CORPUS", DEFAULT_CORPUS)
+CORPUS_DIR = os.path.join(CORPORA_ROOT, ACTIVE_CORPUS)
 
 # ============================================================
 # 公网（阿里云）端点 —— provider="aliyun" 时使用
@@ -64,13 +76,13 @@ ALIYUN_EMBED_API_KEY = os.environ.get("RAG_PUBLIC_EMBED_API_KEY", "")
 ALIYUN_EMBED_MODEL = "text-embedding-v4"   # Qwen3 系嵌入（workspace 上无 qwen3.7-text-embedding）
 ALIYUN_EMBED_BATCH_SIZE = 10               # DashScope 兼容模式单次请求最多 10 条文本
 
-# FAISS 向量维度随 embedding provider 切换（两模型维度不同，切换后必须重建 data/vector/）
+# FAISS 向量维度随 embedding provider 切换（两模型维度不同，切换后必须重建语料的 data/vector/）
 EMBED_VECTOR_DIM = 1024 if EMBED_PROVIDER == "aliyun" else 4096
 EMBED_TIMEOUT = 300.0              # embedding 请求超时（秒），独立于回答 LLM 超时
 
 # embedding 断点续传：分段计算并落盘，向量阶段中断后续跑只补缺失段。
-# 缓存目录独立于 data/vector/（该目录在阶段重建时会被整体删除）
-EMBED_CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "embed_cache")
+# 缓存目录独立于向量阶段目录（该目录在阶段重建时会被整体删除），随语料切换
+EMBED_CHECKPOINT_DIR = os.path.join(CORPUS_DIR, "data", "embed_cache")
 EMBED_CHECKPOINT_SEGMENT_NODES = 256   # 每段节点数（续传粒度；也限制了单次请求体大小）
 
 # ============================================================
@@ -200,20 +212,22 @@ SUMMARY_LEAF_BATCH_SIZE = 5      # 每次 LLM 调用合并的 chunk 数（减少
 SUMMARY_LLM_TEMPERATURE = 0.1
 
 # ============================================================
-# 术语映射（通俗名 → 原文术语）
+# 语料级资产（随书切换）：术语映射 + 图谱规则补充（均可缺省）
 # ============================================================
-TERM_MAP_PATH = os.path.join(os.path.dirname(__file__), "..", "assets", "terminology.json")
+TERM_MAP_PATH = os.path.join(CORPUS_DIR, "terminology.json")
+GRAPH_RULES_PATH = os.path.join(CORPUS_DIR, "graph_rules.json")
 
 # ============================================================
-# 持久化路径
+# 持久化路径 —— 全部派生自激活语料目录（corpora/<slug>/data/）
 # ============================================================
-PERSIST_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "vector")
-FAISS_PERSIST_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "vector", "faiss")
-BM25_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "bm25")
-DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "raw")
-SUMMARY_TREE_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "summary_tree")
-CHUNKS_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "chunks")
-GRAPH_DB_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "graph_db")
+_CORPUS_DATA_DIR = os.path.join(CORPUS_DIR, "data")
+PERSIST_DIR = os.path.join(_CORPUS_DATA_DIR, "vector")
+FAISS_PERSIST_DIR = os.path.join(_CORPUS_DATA_DIR, "vector", "faiss")
+BM25_DIR = os.path.join(_CORPUS_DATA_DIR, "bm25")
+DATA_DIR = os.path.join(CORPUS_DIR, "raw")
+SUMMARY_TREE_DIR = os.path.join(_CORPUS_DATA_DIR, "summary_tree")
+CHUNKS_DIR = os.path.join(_CORPUS_DATA_DIR, "chunks")
+GRAPH_DB_DIR = os.path.join(_CORPUS_DATA_DIR, "graph_db")
 
 # ============================================================
 # 知识图谱（PropertyGraph + Kuzu）

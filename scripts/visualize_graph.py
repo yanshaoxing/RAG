@@ -1,6 +1,7 @@
 """知识图谱可视化：实体圆圈 + 关系连线，节点大小按度数缩放。
 
-数据源：data/graph_cache/graph_db.db（SQLite 图构建缓存，与 Kuzu 图同源）。
+数据源：激活语料的 corpora/<slug>/data/graph_cache/graph_db.db
+（SQLite 图构建缓存，与 Kuzu 图同源；语料由 RAG_CORPUS 选择）。
 输出：仓库根目录 graph_visualization.html（pyvis 交互式页面）。
 
 用法：
@@ -182,8 +183,11 @@ def visualize(G: nx.MultiDiGraph, output_path: str, top_n: int = 80):
 
 
 if __name__ == "__main__":
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+    from rag import config
+
     db_path = os.path.join(
-        os.path.dirname(__file__), "..", "data", "graph_cache", "graph_db.db"
+        os.path.dirname(config.GRAPH_DB_DIR), "graph_cache", "graph_db.db"
     )
     if not os.path.exists(db_path):
         print(f"图构建缓存不存在: {db_path}")

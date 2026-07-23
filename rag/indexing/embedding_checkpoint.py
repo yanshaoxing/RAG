@@ -11,7 +11,8 @@ Embedding 断点续传 —— 分段计算 embedding 并落盘，中断后续跑
   3. 全部段就绪后把 embedding 填回节点（VectorStoreIndex 对已带 embedding
      的节点不再调用 embed 模型），向量索引持久化成功后由调用方清理缓存目录。
 
-缓存目录独立于 data/vector/ —— 该目录在阶段重建时会被 staged_indexer 整体删除。
+缓存目录独立于向量阶段目录（corpora/<slug>/data/vector/）——
+该目录在阶段重建时会被 staged_indexer 整体删除。
 """
 
 import hashlib
