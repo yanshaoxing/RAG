@@ -12,7 +12,8 @@ Dependencies are pinned in `requirements.txt`; install into a venv (`python3 -m 
 
 ```bash
 # CLI query (run as a module from the repo root so `rag` is importable)
-python -m app.cli "你的问题"        # 不带参数时使用内置示例问题
+python -m app.cli "你的问题"        # 单次查询
+python -m app.cli                  # 交互模式：索引加载一次，循环提问（exit/quit/空行退出）
 
 # Streamlit web UI (run from repo root)
 streamlit run app/ui.py
@@ -41,6 +42,8 @@ Indexing is staged; each stage persists to its own folder under `data/` and writ
 
 Source corpus lives in `data/raw/` (plain text / docx; chapter-aware splitting). All JSON persistence is atomic (tmp + `os.replace`).
 
+Stage 4 embedding is checkpointed (`rag/indexing/embedding_checkpoint.py`): embeddings are computed in segments persisted to `data/embed_cache/` (independent of `data/vector/`, which gets wiped on stage rebuild), keyed by a corpus/model fingerprint; an interrupted embedding run resumes from the last completed segment, and the cache is deleted once the vector index persists successfully.
+
 ## Architecture
 
 ### Configuration: `rag/config.py` + prompts: `rag/prompts.py`
@@ -51,7 +54,7 @@ Source corpus lives in `data/raw/` (plain text / docx; chapter-aware splitting).
 
 ### LLM providers: `rag/llm/factory.py`
 
-Two providers, switchable per role via config: `"ollama"` (local/remote Ollama) and `"davy"` (Lenovo internal OpenAI-compatible cloud endpoint; `DavyLLM` implements llama_index `CustomLLM`, uses the CA cert in `assets/`, strips `<thinking>`/`<think>` blocks from responses, and retries 429/5xx/network errors with exponential backoff honoring `Retry-After` — `DAVY_MAX_RETRIES`). Four factory functions create role-specific LLMs: answer, rewrite, summary, and graph-validation (the validator deliberately uses a *different* model than extraction for cross-checking). Embeddings always come from remote Ollama (`qwen3-embedding:8b`, 4096-dim).
+Two providers, switchable per role via config: `"ollama"` (local/remote Ollama) and `"davy"` (Lenovo internal OpenAI-compatible cloud endpoint; `DavyLLM` implements llama_index `CustomLLM`, uses the CA cert in `assets/`, strips `<thinking>`/`<think>` blocks from responses — incrementally via `ThinkStreamFilter` in `stream_chat`, which is true token streaming (per-SSE-chunk yield) — and retries 429/5xx/network errors with exponential backoff honoring `Retry-After` — `DAVY_MAX_RETRIES`). Answer synthesis streams end-to-end when `ANSWER_STREAM_ENABLED=True`: `query()` returns a `StreamingResponse` and both entry points render `response_gen` incrementally. Four factory functions create role-specific LLMs: answer, rewrite, summary, and graph-validation (the validator deliberately uses a *different* model than extraction for cross-checking). Embeddings always come from remote Ollama (`qwen3-embedding:8b`, 4096-dim).
 
 ### Entry-point assembly: `rag/engine/bootstrap.py`
 

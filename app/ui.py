@@ -51,7 +51,7 @@ if prompt := st.chat_input("请输入你的问题"):
         st.error(f"索引加载/构建失败: {e}")
         st.stop()
 
-    # ---- 步骤 3：执行查询 ----
+    # ---- 步骤 3：执行查询（检索阶段；流式开启时回答在步骤 4 逐块渲染） ----
     with st.chat_message("assistant"):
         with st.spinner("思考中..."):
             with capture_pipeline_logs() as cap:
@@ -61,12 +61,20 @@ if prompt := st.chat_input("请输入你的问题"):
                     logger.exception("查询失败")
                     st.error(f"查询失败（网络/LLM 服务异常）: {e}")
                     st.stop()
-            answer = str(response)
         run_logs = cap.drain()
 
-        # ---- 步骤 4：LLM 生成回答 ----
+        # ---- 步骤 4：LLM 生成回答（流式逐块渲染） ----
         st.markdown("**步骤 4：LLM 生成回答**")
-        st.markdown(answer)
+        try:
+            if hasattr(response, "response_gen"):
+                answer = str(st.write_stream(response.response_gen))
+            else:
+                answer = str(response)
+                st.markdown(answer)
+        except Exception as e:
+            logger.exception("回答生成失败")
+            st.error(f"回答生成失败（网络/LLM 服务异常）: {e}")
+            st.stop()
 
         # ---- 步骤 5：输出参考文献 ----
         st.markdown("**步骤 5：输出参考文献**")

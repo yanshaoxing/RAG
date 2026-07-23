@@ -20,6 +20,11 @@ EMBED_BATCH_SIZE = 512
 EMBED_VECTOR_DIM = 4096            # qwen3-embedding:8b 输出维度（用于 FAISS）
 EMBED_TIMEOUT = 300.0              # embedding 请求超时（秒），独立于回答 LLM 超时
 
+# embedding 断点续传：分段计算并落盘，向量阶段中断后续跑只补缺失段。
+# 缓存目录独立于 data/vector/（该目录在阶段重建时会被整体删除）
+EMBED_CHECKPOINT_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "embed_cache")
+EMBED_CHECKPOINT_SEGMENT_NODES = 256   # 每段节点数（续传粒度；也限制了单次请求体大小）
+
 # ============================================================
 # HNSW 索引参数（替代 IndexFlatIP，大幅加速检索）
 # ============================================================
@@ -32,6 +37,7 @@ HNSW_EF_SEARCH = 64              # 检索时的搜索宽度（运行时参数，
 # ============================================================
 # provider: "ollama"（本地）| "davy"（云端）
 ANSWER_PROVIDER = "davy"
+ANSWER_STREAM_ENABLED = True       # 最终回答流式输出（False 时 query() 返回普通 Response）
 
 # --- Ollama ---
 ANSWER_OLLAMA_MODEL = "qwen3.5:9b"

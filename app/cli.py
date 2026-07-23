@@ -2,15 +2,15 @@
 CLI 入口 —— 完整的 RAG 检索问答流程。
 
 用法：
-  python -m app.cli "你的问题"
-  python -m app.cli            # 使用默认示例问题
+  python -m app.cli "你的问题"    # 单次查询
+  python -m app.cli               # 交互模式：索引加载一次，循环提问（exit/quit/空行 退出）
 
 流程：
   步骤 0：开始运行
   步骤 1：初始化全局设置（embedding + LLM）
   步骤 2：构建查询引擎（索引 → 检索器 → 查询引擎，装配逻辑在 rag/engine/bootstrap.py）
   步骤 3：执行查询（检索日志由 capture_pipeline_logs 捕获后统一输出）
-  步骤 4：LLM 生成回答
+  步骤 4：LLM 生成回答（流式逐块打印）
   步骤 5：输出参考文献
 """
 
@@ -19,16 +19,14 @@ import sys
 from rag.engine.bootstrap import init_settings, build_query_engine, format_source_nodes
 from rag.logging_utils import capture_pipeline_logs
 
-DEFAULT_QUESTION = "欧阳雪为什么为难丁元英"
-
 
 def print_step(msg: str):
     """统一打印步骤日志。"""
     print(msg, flush=True)
 
 
-def run_query(question: str) -> None:
-    """执行一次完整查询并打印结果。"""
+def build_engine():
+    """初始化 Settings 并构建查询引擎（交互模式下只执行一次）。"""
     # ---- 步骤 0 ----
     print_step("步骤 0：开始运行")
 
@@ -52,7 +50,11 @@ def run_query(question: str) -> None:
     for line in cap.drain():
         print(f"  {line}")
     print_step("  组装完成")
+    return query_engine
 
+
+def run_query(query_engine, question: str) -> None:
+    """对已构建的引擎执行一次查询并打印结果。"""
     # ---- 步骤 3：执行查询 ----
     print_step("步骤 3：执行查询")
     with capture_pipeline_logs() as cap:
@@ -62,7 +64,7 @@ def run_query(question: str) -> None:
             for line in cap.drain():
                 print(f"  {line}")
             print(f"查询失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
-            raise SystemExit(1)
+            return
 
     # ---- 打印检索日志 ----
     print("=" * 60, flush=True)
@@ -70,9 +72,19 @@ def run_query(question: str) -> None:
         print(f"  {line}", flush=True)
     print("=" * 60, flush=True)
 
-    # ---- 步骤 4：LLM 生成回答 ----
+    # ---- 步骤 4：LLM 生成回答（流式逐块打印） ----
     print_step("步骤 4：LLM 生成回答")
-    print(f"  {response}")
+    try:
+        if hasattr(response, "response_gen"):
+            print("  ", end="", flush=True)
+            for chunk in response.response_gen:
+                print(chunk, end="", flush=True)
+            print(flush=True)
+        else:
+            print(f"  {response}")
+    except Exception as e:
+        print(f"\n回答生成失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
+        return
 
     # ---- 步骤 5：输出参考文献 ----
     print_step("步骤 5：输出参考文献")
@@ -83,7 +95,26 @@ def run_query(question: str) -> None:
         print("  （无参考文献）")
 
 
+def interactive_loop(query_engine) -> None:
+    """交互模式：循环读取问题，索引/引擎复用不重建。"""
+    print_step("进入交互模式（输入 exit / quit / 空行 退出）")
+    while True:
+        try:
+            question = input("\n请输入问题> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print()
+            break
+        if not question or question.lower() in ("exit", "quit", "q"):
+            break
+        run_query(query_engine, question)
+    print_step("已退出")
+
+
 # ======================== 主入口 ========================
 if __name__ == "__main__":
-    q = " ".join(sys.argv[1:]).strip() or DEFAULT_QUESTION
-    run_query(q)
+    q = " ".join(sys.argv[1:]).strip()
+    engine = build_engine()
+    if q:
+        run_query(engine, q)
+    else:
+        interactive_loop(engine)

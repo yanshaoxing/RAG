@@ -27,7 +27,7 @@ from llama_index.vector_stores.faiss import FaissVectorStore
 from rag import config
 from rag.utils.files import atomic_write_json, mark_stage_done, stage_complete
 from rag.ingestion.preprocessor import load_documents, create_chunking_pipeline
-from rag.indexing.embedding_progress import ProgressOllamaEmbedding
+from rag.indexing.embedding_checkpoint import embed_nodes_with_checkpoint, clear_checkpoint
 from rag.summarization.summary_tree import build_summary_tree
 from rag.graph.graph_constructor import build_graph, load_graph
 
@@ -236,13 +236,13 @@ def _load_bm25() -> BM25Retriever:
 
 
 def _stage_vector(all_nodes: list) -> VectorStoreIndex:
-    """阶段 4：向量索引构建 → vector/"""
-    _embed_bs = getattr(Settings.embed_model, "embed_batch_size", config.EMBED_BATCH_SIZE)
-    _num_batches = (len(all_nodes) + _embed_bs - 1) // _embed_bs
-    print(f"阶段 4：构建向量索引（共 {len(all_nodes)} 个节点，batch_size={_embed_bs}，"
-          f"{_num_batches} 个批次）...", flush=True)
+    """阶段 4：向量索引构建 → vector/（embedding 分段落盘，中断可续传）"""
+    _seg = config.EMBED_CHECKPOINT_SEGMENT_NODES
+    _num_segments = (len(all_nodes) + _seg - 1) // _seg
+    print(f"阶段 4：构建向量索引（共 {len(all_nodes)} 个节点，每段 {_seg} 个，"
+          f"{_num_segments} 段，断点可续传）...", flush=True)
     _log(f"阶段 4：构建向量索引（共 {len(all_nodes)} 个节点，"
-         f"batch_size={_embed_bs}，{_num_batches} 个批次）")
+         f"每段 {_seg} 个，{_num_segments} 段）")
 
     t_start = datetime.now()
 
@@ -261,19 +261,13 @@ def _stage_vector(all_nodes: list) -> VectorStoreIndex:
     vector_store = FaissVectorStore(faiss_index=faiss_index)
     storage_context = StorageContext.from_defaults(vector_store=vector_store)
 
-    _original_embed = Settings.embed_model
-    Settings.embed_model = ProgressOllamaEmbedding(
-        total_nodes=len(all_nodes),
-        label="向量索引",
-        model_name=getattr(_original_embed, "model_name", config.EMBED_MODEL_NAME),
-        base_url=getattr(_original_embed, "base_url", config.EMBED_OLLAMA_BASE_URL),
-        request_timeout=getattr(_original_embed, "request_timeout", config.EMBED_TIMEOUT),
-        embed_batch_size=_embed_bs,
-    )
+    # 分段计算 embedding 并落盘（data/embed_cache/），中断后续跑只补缺失段；
+    # 节点已带 embedding，VectorStoreIndex 不会再调用 embed 模型
+    embed_nodes_with_checkpoint(all_nodes, Settings.embed_model, label="向量索引")
     index = VectorStoreIndex(all_nodes, storage_context=storage_context)
-    Settings.embed_model = _original_embed
     index.storage_context.persist(persist_dir=config.PERSIST_DIR)
     _mark_stage_done(config.PERSIST_DIR, num_nodes=len(all_nodes))
+    clear_checkpoint()  # 向量索引已持久化，embedding 缓存不再需要
 
     t_elapsed = (datetime.now() - t_start).total_seconds()
     _log(f"  向量索引构建完成，持久化到 {config.PERSIST_DIR}，耗时 {t_elapsed:.1f}s")

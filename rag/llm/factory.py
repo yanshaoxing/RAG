@@ -29,6 +29,95 @@ from rag import config
 logger = logging.getLogger(__name__)
 
 
+# ======================== 流式思考块过滤 ========================
+
+class ThinkStreamFilter:
+    """流式增量剥离 <think>/<thinking> 思考块（标签可跨 chunk 边界）。
+
+    与批量版 DavyLLM._strip_thinking 语义一致：丢弃闭合思考块及其后随空白；
+    可能构成标签前缀的尾部字符会被暂存，直到能判定是否为真实标签。
+    流结束时调用 finalize() 取回暂存的非标签残余。
+    """
+
+    _OPEN_TAGS = ("<thinking>", "<think>")
+    _CLOSE_TAGS = ("</thinking>", "</think>")
+
+    def __init__(self):
+        self._buf = ""
+        self._in_think = False
+        self._skip_ws = True  # 起始/思考块结束后跳过空白（对齐批量版 strip 行为）
+
+    @staticmethod
+    def _partial_suffix_len(buf: str, tags: tuple) -> int:
+        """buf 尾部与任一标签前缀重叠的最大长度（这些字符需暂存，不能输出/丢弃）。"""
+        max_len = 0
+        for tag in tags:
+            for k in range(min(len(buf), len(tag) - 1), 0, -1):
+                if buf.endswith(tag[:k]):
+                    max_len = max(max_len, k)
+                    break
+        return max_len
+
+    @staticmethod
+    def _find_first(buf: str, tags: tuple):
+        """返回 buf 中最先出现的标签 (位置, 标签)，未找到返回 (-1, None)。"""
+        best_idx, best_tag = -1, None
+        for tag in tags:
+            i = buf.find(tag)
+            if i != -1 and (best_idx == -1 or i < best_idx):
+                best_idx, best_tag = i, tag
+        return best_idx, best_tag
+
+    def feed(self, delta: str) -> str:
+        """喂入一个增量，返回可安全输出的正文文本（可能为空串）。"""
+        self._buf += delta
+        out: list[str] = []
+
+        while True:
+            if self._in_think:
+                idx, tag = self._find_first(self._buf, self._CLOSE_TAGS)
+                if idx == -1:
+                    # 未闭合：丢弃已确定的思考内容，仅暂存可能的闭合标签前缀
+                    keep = self._partial_suffix_len(self._buf, self._CLOSE_TAGS)
+                    self._buf = self._buf[len(self._buf) - keep:] if keep else ""
+                    break
+                self._buf = self._buf[idx + len(tag):]
+                self._in_think = False
+                self._skip_ws = True  # 思考块后随空白一并剥离
+            else:
+                if self._skip_ws:
+                    stripped = self._buf.lstrip()
+                    if not stripped and self._buf:
+                        self._buf = ""
+                        break
+                    if stripped:
+                        self._buf = stripped
+                        self._skip_ws = False
+                idx, tag = self._find_first(self._buf, self._OPEN_TAGS)
+                if idx == -1:
+                    # 无开始标签：输出除"可能是标签前缀的尾部"之外的内容
+                    keep = self._partial_suffix_len(self._buf, self._OPEN_TAGS)
+                    emit_end = len(self._buf) - keep
+                    if emit_end > 0:
+                        out.append(self._buf[:emit_end])
+                        self._buf = self._buf[emit_end:]
+                    break
+                out.append(self._buf[:idx])
+                self._buf = self._buf[idx + len(tag):]
+                self._in_think = True
+
+        return "".join(out)
+
+    def finalize(self) -> str:
+        """流结束：暂存的标签前缀若未成为完整标签，按正文返回；未闭合思考内容丢弃。"""
+        if self._in_think:
+            self._buf = ""
+            return ""
+        tail = self._buf
+        self._buf = ""
+        return tail
+
+
 # ======================== DavyLLM ========================
 
 class DavyLLM(CustomLLM):
@@ -171,32 +260,48 @@ class DavyLLM(CustomLLM):
 
     @llm_chat_callback()
     def stream_chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponseGen:
+        """真流式：SSE 增量逐块 yield（思考块经 ThinkStreamFilter 增量剥离）。"""
         body = self._build_request_body(messages, **kwargs)
         body["stream"] = True
 
         def gen() -> ChatResponseGen:
+            think_filter = ThinkStreamFilter()
             full_content = ""
             response = self._post_with_retry(body, stream=True)
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                line = line.decode("utf-8").strip()
-                if line == "data: [DONE]":
-                    break
-                if line.startswith("data: "):
-                    line = line[6:]
-                try:
-                    chunk = json.loads(line)
-                    delta = chunk["choices"][0]["delta"].get("content", "")
-                    if delta:
-                        full_content += delta
-                except json.JSONDecodeError:
-                    continue
-            clean = DavyLLM._strip_thinking(full_content)
-            yield ChatResponse(
-                message=ChatMessage(role=MessageRole.ASSISTANT, content=clean),
-                delta=clean,
-            )
+            try:
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    line = line.decode("utf-8").strip()
+                    if line == "data: [DONE]":
+                        break
+                    if line.startswith("data: "):
+                        line = line[6:]
+                    try:
+                        chunk = json.loads(line)
+                        delta = chunk["choices"][0]["delta"].get("content", "")
+                    except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                        continue
+                    if not delta:
+                        continue
+                    clean = think_filter.feed(delta)
+                    if clean:
+                        full_content += clean
+                        yield ChatResponse(
+                            message=ChatMessage(role=MessageRole.ASSISTANT, content=full_content),
+                            delta=clean,
+                        )
+                tail = think_filter.finalize()
+                if tail:
+                    full_content += tail
+                if tail or not full_content:
+                    # 输出残余；或全程无正文（如仅思考内容）时兜底 yield 一次空响应
+                    yield ChatResponse(
+                        message=ChatMessage(role=MessageRole.ASSISTANT, content=full_content),
+                        delta=tail,
+                    )
+            finally:
+                response.close()
 
         return gen()
 
@@ -213,7 +318,7 @@ class DavyLLM(CustomLLM):
         def gen() -> CompletionResponseGen:
             for chat_resp in self.stream_chat(messages, **kwargs):
                 yield CompletionResponse(
-                    text=chat_resp.delta or "",
+                    text=chat_resp.message.content or "",  # 累积文本（llama_index 约定）
                     delta=chat_resp.delta,
                     raw=chat_resp.raw,
                 )
