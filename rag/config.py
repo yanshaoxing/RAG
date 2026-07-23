@@ -169,8 +169,9 @@ GRAPH_RETRIEVAL_TOP_K = 5          # 匹配实体时取 top-k 个实体作为入
 
 # 实体/关系抽取 LLM 配置
 GRAPH_EXTRACT_LLM_PROVIDER = "davy"   # "ollama" | "davy"
-GRAPH_EXTRACT_MAX_CONCURRENCY = 2     # 抽取并发数
-GRAPH_EXTRACT_BATCH_SIZE = 5          # 每批处理的 chunk 数
+# 抽取/校验 worker 并发数（记账在主线程串行）。主线程的 merge/canonicalize
+# 也是 LLM 调用，实际 LLM 并发最坏 = 此值 + 1（Davy >2 并发 429，有重试兜底）
+GRAPH_EXTRACT_MAX_CONCURRENCY = 2
 
 # 三元组校验 LLM 配置（不同模型交叉校验更可靠）
 GRAPH_VALIDATE_LLM_PROVIDER = "davy"    # "ollama" | "davy"

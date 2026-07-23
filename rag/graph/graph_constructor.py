@@ -14,7 +14,9 @@
 import logging
 import os
 import shutil
-from typing import Optional
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor
+from typing import Callable, Optional
 
 import kuzu
 from llama_index.core.embeddings import MockEmbedding
@@ -54,12 +56,86 @@ def _prepare_sections_for_graph(documents: list[Document]) -> list[tuple[int, st
     return sections
 
 
-def _process_one_chunk(
+def _resolve_graph_models(llm) -> tuple[str, str]:
+    """解析抽取/校验实际使用的模型名（用于 build fingerprint 与记账）。
+
+    此前 extract_model 记的是 provider（"davy"）、validate_model 记的是
+    ollama 分支的模型名 —— 换真实模型时缓存该失效而不失效，记账也失真。
+    """
+    extract_model = (getattr(llm, "model_name", None)
+                     or getattr(llm, "model", None) or "unknown")
+    if config.GRAPH_VALIDATE_LLM_PROVIDER == "davy":
+        validate_model = config.GRAPH_VALIDATE_DAVY_MODEL
+    else:
+        validate_model = config.GRAPH_VALIDATE_LLM_MODEL
+    return str(extract_model), str(validate_model)
+
+
+def _extract_and_validate(
+    idx: int, text: str, extractor: Extractor, validator: Validator,
+):
+    """worker 阶段：LLM 抽取 + 校验（不触碰缓存与全局记账，可安全并发）。
+
+    返回 (ChunkResult 或 None, 校验后的关系列表, 异常或 None)。
+    异常在 worker 内捕获，由主线程统一按"该 chunk 失败"处理。
+    """
+    try:
+        result = extractor.extract(text, idx)
+        if result is None or result.is_empty:
+            return result, [], None
+        validated = validator.validate(result.relations, text)
+        return result, validated, None
+    except Exception as e:  # noqa: BLE001 —— 单 chunk 异常不中断整体构建
+        return None, [], e
+
+
+def _run_pipelined(
+    items: list,
+    worker_fn: Callable,
+    handle_fn: Callable,
+    max_workers: int,
+) -> None:
+    """有界流水线：worker 线程并发跑 worker_fn(item)（LLM 重活），
+    主线程严格按提交顺序执行 handle_fn(item, outcome)（缓存/记账，无需加锁）。
+
+    in-flight 上限 2×max_workers，避免 worker 跑得太远 —— 结果只有经
+    handle_fn 落缓存后才算数，中断时最多丢弃在途的少量抽取结果。
+    worker_fn 必须自行捕获异常（把异常作为 outcome 的一部分返回）。
+    """
+    if not items:
+        return
+    max_workers = max(1, max_workers)
+    window = max_workers * 2
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        in_flight: deque = deque()
+        item_iter = iter(items)
+
+        def _submit_next() -> bool:
+            try:
+                item = next(item_iter)
+            except StopIteration:
+                return False
+            in_flight.append((item, executor.submit(worker_fn, item)))
+            return True
+
+        for _ in range(window):
+            if not _submit_next():
+                break
+
+        while in_flight:
+            item, fut = in_flight.popleft()
+            outcome = fut.result()
+            _submit_next()          # 先补位再处理，保持 worker 满载
+            handle_fn(item, outcome)
+
+
+def _book_chunk_result(
     idx: int,
     text: str,
+    result,
+    validated_relations: list[RelModel],
     cache: GraphCache,
-    extractor: Extractor,
-    validator: Validator,
     merger: DescriptionMerger,
     canonicalizer: Canonicalizer,
     metrics: MetricsCollector,
@@ -68,11 +144,9 @@ def _process_one_chunk(
     all_known_entities: list[str],
     _log,
 ) -> None:
-    """处理单个 chunk：抽取 → 校验 → 归一化 → 描述合并 → 入缓存。"""
+    """主线程记账阶段：归一化 → 描述合并 → 入缓存（串行执行，保证记账确定性）。"""
     cache.mark_chunk_processing(idx, text)
 
-    # 抽取
-    result = extractor.extract(text, idx)
     if result is None:
         _log(f"  ⚠️ chunk #{idx}: 抽取失败")
         cache.mark_chunk_failed(idx)
@@ -92,8 +166,6 @@ def _process_one_chunk(
         metrics.record_chunk_success()
         return
 
-    # 校验
-    validated_relations = validator.validate(result.relations, text)
     filtered_count = len(result.relations) - len(validated_relations)
     if filtered_count > 0:
         metrics.record_filtered_by_llm(filtered_count)
@@ -113,46 +185,51 @@ def _process_one_chunk(
     if result.entities:
         cache.save_entities(result.entities)
 
-    # 合并描述 + 规范化实体
+    # ---- 实体规范化：每个端点名只处理一次 ----
+    # （此前逐关系逐端点处理，同名实体出现在多条关系中时
+    #   canonicalize/merge LLM 调用成倍放大）
+    endpoint_names: list[str] = []
+    for rel in validated_relations:
+        for name in (rel.subject, rel.object):
+            if name not in endpoint_names:
+                endpoint_names.append(name)
+
+    name_map: dict[str, str] = {}
+    for orig_name in endpoint_names:
+        if orig_name in all_known_entities:
+            name_map[orig_name] = orig_name
+            continue
+        canonical = canonicalizer.canonicalize(orig_name, all_known_entities)
+        if canonical and canonical != orig_name:
+            cache.update_entity_canonical(orig_name, canonical)
+            metrics.record_canonicalized()
+            name_map[orig_name] = canonical
+        else:
+            # 真正的新实体：加入已知列表，后续 chunk 的归一化才能参照它
+            name_map[orig_name] = orig_name
+            all_known_entities.append(orig_name)
+
+    for rel in validated_relations:
+        rel.subject = name_map.get(rel.subject, rel.subject)
+        rel.object = name_map.get(rel.object, rel.object)
+
+    # ---- Description 合并：每个实体每 chunk 最多一次 LLM 调用 ----
+    entity_desc = {e.name: e.description for e in result.entities}
+    for orig_name in endpoint_names:
+        new_desc = entity_desc.get(orig_name, "")
+        if not new_desc or len(new_desc) < 5:
+            continue
+        final_name = name_map[orig_name]
+        existing_desc = global_entity_descriptions.get(final_name, "")
+        merged_desc = merger.merge(existing_desc, new_desc, final_name)
+        global_entity_descriptions[final_name] = merged_desc
+        cache.update_entity_description(final_name, merged_desc)
+        if existing_desc and merged_desc != existing_desc:
+            metrics.record_merged_description()
+
+    # ---- 去重 + 入缓存 ----
     new_relations: list[RelModel] = []
     for rel in validated_relations:
-        # 保存原始名称（用于在 result.entities 中查找 description）
-        orig_subj = rel.subject
-        orig_obj = rel.object
-
-        # 实体规范化
-        for orig_name in [orig_subj, orig_obj]:
-            if orig_name in all_known_entities:
-                continue
-            canonical = canonicalizer.canonicalize(orig_name, all_known_entities)
-            if canonical and canonical != orig_name:
-                cache.update_entity_canonical(orig_name, canonical)
-                metrics.record_canonicalized()
-                if rel.subject == orig_name:
-                    rel.subject = canonical
-                if rel.object == orig_name:
-                    rel.object = canonical
-            else:
-                # 真正的新实体：加入已知列表，后续 chunk 的归一化才能参照它
-                all_known_entities.append(orig_name)
-
-        # Description 合并（用原始名称在 result.entities 中查找）
-        for orig_name, final_name in [(orig_subj, rel.subject), (orig_obj, rel.object)]:
-            new_desc = ""
-            for ent in result.entities:
-                if ent.name == orig_name:
-                    new_desc = ent.description
-                    break
-
-            if new_desc and len(new_desc) >= 5:
-                existing_desc = global_entity_descriptions.get(final_name, "")
-                merged_desc = merger.merge(existing_desc, new_desc, final_name)
-                global_entity_descriptions[final_name] = merged_desc
-                cache.update_entity_description(final_name, merged_desc)
-                if existing_desc and merged_desc != existing_desc:
-                    metrics.record_merged_description()
-
-        # 去重
         if rel.triple_key not in global_relation_map:
             global_relation_map[rel.triple_key] = rel
             new_relations.append(rel)
@@ -203,9 +280,8 @@ def build_graph(
         growth_threshold=config.GRAPH_SCHEMA_GROWTH_THRESHOLD,
     )
 
-    # ---- 3. 计算 Build Fingerprint ----
-    extract_model = getattr(config, "GRAPH_EXTRACT_LLM_PROVIDER", "unknown")
-    validate_model = getattr(config, "GRAPH_VALIDATE_LLM_MODEL", "unknown")
+    # ---- 3. 计算 Build Fingerprint（使用实际模型名，换模型必须使缓存失效） ----
+    extract_model, validate_model = _resolve_graph_models(llm)
     fingerprint = schema.compute_fingerprint(
         extract_prompt=prompts.GRAPH_EXTRACT_PROMPT,
         validate_prompt=prompts.GRAPH_VALIDATE_PROMPT,
@@ -274,33 +350,61 @@ def build_graph(
     # ---- 7. 全局状态 ----
     global_entity_descriptions: dict[str, str] = cache.get_all_entity_descriptions()
     global_relation_map: dict[tuple, RelModel] = cache.build_relation_map()
-    all_known_entities: list[str] = list(global_entity_descriptions.keys())
+    # 已知实体 = 有描述的 ∪ 全部 canonical 名（无描述实体也要参与归一化参照）
+    all_known_entities: list[str] = list(dict.fromkeys(
+        list(global_entity_descriptions.keys()) + cache.get_all_entity_names()
+    ))
 
-    # ---- 8. 主循环：逐 chunk 处理（单 chunk 异常不中断整体构建） ----
+    # ---- 8. 主循环：有界流水线 ----
+    # worker 线程并发跑「抽取 + 校验」（每 chunk 独立、无共享状态），
+    # 主线程严格按提交顺序做「归一化 + 合并 + 入缓存」（记账确定、SQLite 免锁）。
+    # 注意：主线程记账中的 merge/canonicalize 也是 LLM 调用，
+    # 实际 LLM 并发最坏 = GRAPH_EXTRACT_MAX_CONCURRENCY + 1（Davy 429 有重试兜底）。
+
+    # 先过滤缓存已完成的 chunk
+    pending: list[tuple[int, str]] = []
     for idx, text in sections:
-        _log(f"  📝 chunk #{idx} 抽取中...")
-
-        # 检查缓存
         if cache.chunk_exists(idx, text):
             _log(f"  ⏭️ chunk #{idx} 已在缓存中，跳过")
             metrics.record_chunk_success()
-            # 从缓存加载该 chunk 的关系
             cached_rels = cache.get_relations_by_chunk(idx)
             metrics.record_relation(len(cached_rels))
-            continue
+        else:
+            pending.append((idx, text))
 
-        try:
-            _process_one_chunk(
-                idx, text, cache, extractor, validator, merger, canonicalizer,
-                metrics, global_entity_descriptions, global_relation_map,
-                all_known_entities, _log,
-            )
-        except Exception as e:
-            # 逐 chunk 兜底：一个 chunk 异常不能崩掉整个图构建
-            logger.exception(f"chunk #{idx} 处理异常")
-            _log(f"  ❌ chunk #{idx} 处理异常: {e}，跳过该 chunk 继续")
-            cache.mark_chunk_failed(idx)
-            metrics.record_chunk_failed()
+    if pending:
+        max_workers = max(1, config.GRAPH_EXTRACT_MAX_CONCURRENCY)
+        _log(f"  待抽取 {len(pending)} 个节（抽取/校验并发={max_workers}，记账串行）")
+
+        def _worker(item: tuple[int, str]):
+            idx, text = item
+            return _extract_and_validate(idx, text, extractor, validator)
+
+        def _handle(item: tuple[int, str], outcome) -> None:
+            idx, text = item
+            result, validated_relations, error = outcome
+            _log(f"  📝 chunk #{idx} 记账中...")
+            if error is not None:
+                logger.error(f"chunk #{idx} 抽取/校验异常: {error}")
+                _log(f"  ❌ chunk #{idx} 抽取/校验异常: {error}，跳过该 chunk 继续")
+                cache.mark_chunk_processing(idx, text)
+                cache.mark_chunk_failed(idx)
+                metrics.record_chunk_failed()
+                return
+            try:
+                _book_chunk_result(
+                    idx, text, result, validated_relations, cache, merger,
+                    canonicalizer, metrics, global_entity_descriptions,
+                    global_relation_map, all_known_entities, _log,
+                )
+            except Exception as e:
+                # 逐 chunk 兜底：一个 chunk 异常不能崩掉整个图构建
+                logger.exception(f"chunk #{idx} 记账异常")
+                _log(f"  ❌ chunk #{idx} 记账异常: {e}，跳过该 chunk 继续")
+                cache.mark_chunk_failed(idx)
+                metrics.record_chunk_failed()
+
+        _run_pipelined(pending, _worker, _handle, max_workers)
 
     # 保存 Schema
     schema.save(schema_cache_path)

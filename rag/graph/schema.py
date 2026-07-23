@@ -12,6 +12,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from typing import Optional
 
 from .models import SchemaTypeInfo
@@ -127,6 +128,10 @@ class Schema:
         # 已学习的类型：{type_name: kuzu_label}
         self._learned_types: dict[str, str] = {}
 
+        # resolve_type 会被抽取 worker 线程并发调用（graph_constructor 流水线），
+        # 未知类型计数与自动升级是读改写序列，需要加锁
+        self._lock = threading.Lock()
+
     # ---- Entity Type ----
 
     def resolve_type(self, raw_type: str) -> str:
@@ -155,12 +160,13 @@ class Schema:
             if cn_type in raw_type or raw_type in cn_type:
                 return kuzu_label
 
-        # 未识别：记录到未知类型池
-        self._unknown_types[raw_type] = self._unknown_types.get(raw_type, 0) + 1
+        # 未识别：记录到未知类型池（计数+升级是读改写序列，加锁保证并发正确）
+        with self._lock:
+            self._unknown_types[raw_type] = self._unknown_types.get(raw_type, 0) + 1
 
-        # 检查是否达到阈值，自动升级
-        if self._unknown_types[raw_type] >= self._growth_threshold:
-            self._promote_type(raw_type)
+            # 检查是否达到阈值，自动升级
+            if self._unknown_types[raw_type] >= self._growth_threshold:
+                self._promote_type(raw_type)
 
         return "Entity"
 

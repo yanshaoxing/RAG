@@ -41,13 +41,11 @@ class Extractor:
         schema: Schema,
         extract_prompt: str,
         model_name: str = "",
-        confidence_threshold: float = 0.5,
     ):
         self._llm = llm
         self._schema = schema
         self._extract_prompt = extract_prompt
         self._model_name = model_name
-        self._confidence_threshold = confidence_threshold
         self._rules = _load_rules()
 
     def extract(self, chunk_text: str, chunk_id: int) -> Optional[ChunkResult]:

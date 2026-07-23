@@ -209,6 +209,14 @@ class GraphCache:
         ).fetchall()
         return {row[0]: row[1] for row in rows}
 
+    def get_all_entity_names(self) -> list[str]:
+        """获取所有 canonical 实体名（含无描述的实体——它们同样要参与归一化参照）。"""
+        rows = self._conn.execute(
+            """SELECT DISTINCT canonical_name FROM entities
+               WHERE canonical_name IS NOT NULL AND canonical_name != ''"""
+        ).fetchall()
+        return [row[0] for row in rows]
+
     # ---- Relation 管理 ----
 
     def save_relations(self, relations: list[Relation]):
