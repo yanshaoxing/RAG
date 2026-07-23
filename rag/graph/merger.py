@@ -9,23 +9,9 @@
 import logging
 from typing import Optional
 
+from rag import prompts
+
 logger = logging.getLogger(__name__)
-
-MERGE_PROMPT = """你是一个知识图谱实体描述合并助手。请将以下「已有描述」和「新增描述」合并为一条简洁、准确、全面的描述。
-
-已有描述：
-{existing_desc}
-
-新增描述：
-{new_desc}
-
-要求：
-1. 合并后的描述应包含两条描述中的关键信息，不重复
-2. 长度控制在 20~120 字
-3. 使用客观、简洁的语言
-4. 仅输出合并后的描述文本，不要添加任何前缀或解释
-
-合并后的描述："""
 
 
 class DescriptionMerger:
@@ -72,7 +58,7 @@ class DescriptionMerger:
             return existing_desc
 
         # 调用 LLM 合并
-        prompt = MERGE_PROMPT.format(
+        prompt = prompts.MERGE_PROMPT.format(
             existing_desc=existing_desc,
             new_desc=new_desc,
         )

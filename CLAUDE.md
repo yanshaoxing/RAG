@@ -43,9 +43,11 @@ Source corpus lives in `data/raw/` (plain text / docx; chapter-aware splitting).
 
 ## Architecture
 
-### Configuration: `rag/config.py`
+### Configuration: `rag/config.py` + prompts: `rag/prompts.py`
 
-Single source of truth for **everything**: model endpoints, all tuning parameters, and all LLM prompts (query rewrite, HyDE, keyword expansion, decomposition, summarization, graph extraction/validation, final QA template). Intranet endpoints and the API key can be overridden via env vars (`RAG_EMBED_OLLAMA_BASE_URL`, `RAG_DAVY_BASE_URL`, `RAG_DAVY_API_KEY`, `RAG_RERANK_BASE_URL`, `RAG_GRAPH_VALIDATE_LLM_BASE_URL`, `RAG_DEBUG`); hardcoded values remain the defaults. Every optional feature has an independent toggle: `REWRITE_ENABLED`, `DECOMPOSE_ENABLED`, `RERANK_ENABLED`, `SUMMARY_TREE_ENABLED`, `GRAPH_ENABLED`, `GRAPH_VALIDATE_ENABLED`, `DEBUG` (defaults to False). When changing behavior, look for a config knob before touching code.
+`rag/config.py` is parameters only: model endpoints, tuning parameters, feature toggles, query-time concurrency limits (`QUERY_REWRITE_MAX_CONCURRENCY`, `SUBQUERY_MAX_CONCURRENCY` — default 2 because the Davy endpoint 429s above 2 concurrent). Intranet endpoints and the API key can be overridden via env vars (`RAG_EMBED_OLLAMA_BASE_URL`, `RAG_DAVY_BASE_URL`, `RAG_DAVY_API_KEY`, `RAG_RERANK_BASE_URL`, `RAG_GRAPH_VALIDATE_LLM_BASE_URL`, `RAG_DEBUG`); hardcoded values remain the defaults. Every optional feature has an independent toggle: `REWRITE_ENABLED`, `DECOMPOSE_ENABLED`, `RERANK_ENABLED`, `SUMMARY_TREE_ENABLED`, `GRAPH_ENABLED`, `GRAPH_VALIDATE_ENABLED`, `DEBUG` (defaults to False). When changing behavior, look for a config knob before touching code.
+
+**All** LLM prompt templates live in `rag/prompts.py` (rewrite/HyDE/keywords, decomposition, summarization, graph extract/validate/canonicalize/merge, query entity extraction, final QA template) — never put prompt text in config.py or inline in modules. Runtime placeholders use single braces (`{query}`), filled by the caller's `.format()`; literal JSON braces are `{{ }}`-escaped. The novel-context block `NOVEL_CONTEXT` is injected at import time via `str.replace` (not `.format`), so templates need no double-escaping. `tests/test_prompts.py` guards every template's placeholders.
 
 ### LLM providers: `rag/llm/factory.py`
 
@@ -67,7 +69,7 @@ Both entry points (`app/cli.py`, `app/ui.py`) are thin display shells over `boot
 `rag/engine/query_engine.py` guarantees both entry points share prompt/synthesizer config.
 
 1. **Decompose** (`rag/retrieval/query_decomposer.py`) — LLM classifies complex queries (prefix-matched 是/否 answer) and splits into sub-queries, each run through the full pipeline and merged.
-2. **3-way rewrite** (`rag/retrieval/query_rewriter.py`) — NL rewrite + HyDE (→ vector retrieval) and keyword expansion (→ BM25), all grounded in the novel context block `_NOVEL_CONTEXT` in config. Terminology mapping (`assets/terminology.json`) runs even when `REWRITE_ENABLED=False`.
+2. **3-way rewrite** (`rag/retrieval/query_rewriter.py`) — NL rewrite + HyDE (→ vector retrieval) and keyword expansion (→ BM25), all grounded in the novel context block `NOVEL_CONTEXT` in `rag/prompts.py`. Terminology mapping (`assets/terminology.json`) runs even when `REWRITE_ENABLED=False`.
 3. **Per-route filtering** (`rag/retrieval/hybrid_retriever.py`) — summary-redundancy filter (drop summary nodes whose covered chunks were already retrieved, `SUMMARY_REDUNDANCY_THRESHOLD`), then gap detection (adjacent score-drop ratio) and per-route min-score floors.
 4. **RRF fusion** of the three routes, then **rerank** via bge-reranker-v2-m3 on a vLLM `/v1/rerank` endpoint (`rag/retrieval/reranker.py`). On reranker failure the pipeline falls back to RRF ordering (`rerank()` returns `None`; scores are never zeroed).
 5. **Graph augmentation** — `GraphAugmentedQueryEngine` (in `rag/engine/query_engine.py`) appends Kuzu graph triples as an extra context node scored at the current minimum (`rag/graph/graph_retriever.py`: LLM extracts entities from the query → parameterized Kuzu `CONTAINS` match → neighbor traversal).

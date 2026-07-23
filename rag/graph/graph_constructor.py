@@ -23,7 +23,7 @@ from llama_index.core.indices.property_graph import PropertyGraphIndex
 from llama_index.core.schema import Document
 from llama_index.graph_stores.kuzu import KuzuPropertyGraphStore
 
-from rag import config
+from rag import config, prompts
 from rag.llm.factory import create_validate_llm
 from rag.utils.files import mark_stage_done
 
@@ -207,8 +207,8 @@ def build_graph(
     extract_model = getattr(config, "GRAPH_EXTRACT_LLM_PROVIDER", "unknown")
     validate_model = getattr(config, "GRAPH_VALIDATE_LLM_MODEL", "unknown")
     fingerprint = schema.compute_fingerprint(
-        extract_prompt=config.GRAPH_EXTRACT_PROMPT,
-        validate_prompt=config.GRAPH_VALIDATE_PROMPT,
+        extract_prompt=prompts.GRAPH_EXTRACT_PROMPT,
+        validate_prompt=prompts.GRAPH_VALIDATE_PROMPT,
         extract_model=extract_model,
         validate_model=validate_model,
         code_version="2.0",
@@ -238,14 +238,14 @@ def build_graph(
     extractor = Extractor(
         llm=llm,
         schema=schema,
-        extract_prompt=config.GRAPH_EXTRACT_PROMPT,
+        extract_prompt=prompts.GRAPH_EXTRACT_PROMPT,
         model_name=extract_model,
     )
 
     validate_llm = create_validate_llm()
     validator = Validator(
         validate_llm=validate_llm,
-        validate_prompt=config.GRAPH_VALIDATE_PROMPT,
+        validate_prompt=prompts.GRAPH_VALIDATE_PROMPT,
         model_name=validate_model,
         confidence_threshold=getattr(config, "GRAPH_VALIDATE_CONFIDENCE_THRESHOLD", 0.7),
         enabled=config.GRAPH_VALIDATE_ENABLED and validate_llm is not None,

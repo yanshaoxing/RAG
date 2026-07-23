@@ -17,7 +17,7 @@ from typing import Optional
 
 from llama_index.core.llms import ChatMessage, MessageRole, CustomLLM
 
-from rag import config
+from rag import config, prompts
 from rag.utils.concurrency import run_parallel_captured
 
 logger = logging.getLogger(__name__)
@@ -91,7 +91,7 @@ class QueryRewriter:
 
     def _generate_nl(self, mapped_query: str) -> str:
         """路径 A：自然语言改写（贴近原著措辞）。"""
-        prompt = config.REWRITE_NL_PROMPT.format(query=mapped_query)
+        prompt = prompts.REWRITE_NL_PROMPT.format(query=mapped_query)
         try:
             return self._call_llm(prompt)
         except Exception as e:
@@ -100,7 +100,7 @@ class QueryRewriter:
 
     def _generate_hyde(self, mapped_query: str) -> str:
         """路径 B：HyDE 假设性回答段落。"""
-        prompt = config.REWRITE_HYDE_PROMPT.format(query=mapped_query)
+        prompt = prompts.REWRITE_HYDE_PROMPT.format(query=mapped_query)
         try:
             return self._call_llm(prompt)
         except Exception as e:
@@ -109,7 +109,7 @@ class QueryRewriter:
 
     def _generate_kw(self, mapped_query: str) -> str:
         """路径 C：BM25 关键词扩展。"""
-        prompt = config.REWRITE_KW_PROMPT.format(query=mapped_query)
+        prompt = prompts.REWRITE_KW_PROMPT.format(query=mapped_query)
         try:
             result = self._call_llm(prompt)
             return self._dedup_kw(result)

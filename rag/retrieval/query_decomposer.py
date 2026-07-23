@@ -13,7 +13,7 @@ from typing import Optional
 
 from llama_index.core.llms import ChatMessage, MessageRole, CustomLLM
 
-from rag import config
+from rag import config, prompts
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +88,7 @@ class QueryDecomposer:
 
     def _llm_classify(self, query: str) -> bool:
         """用 LLM 判断查询是否复杂（轻量 prompt）。"""
-        prompt = config.DECOMPOSE_CLASSIFY_PROMPT.format(query=query)
+        prompt = prompts.DECOMPOSE_CLASSIFY_PROMPT.format(query=query)
         try:
             response = self._call_llm(prompt)
             # 前缀匹配：LLM 回答"不是"时也包含"是"字，不能用子串判断。
@@ -105,7 +105,7 @@ class QueryDecomposer:
 
     def _do_decompose(self, query: str) -> list[str]:
         """LLM 拆分子查询。"""
-        prompt = config.DECOMPOSE_PROMPT.format(
+        prompt = prompts.DECOMPOSE_PROMPT.format(
             query=query,
             max_sub=config.DECOMPOSE_MAX_SUB_QUERIES,
         )

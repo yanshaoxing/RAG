@@ -15,21 +15,10 @@ from typing import Optional, List
 
 from llama_index.core.indices.property_graph import PropertyGraphIndex
 
-from rag import config
+from rag import config, prompts
 from rag.utils.json_parse import parse_json_list
 
 logger = logging.getLogger(__name__)
-
-
-ENTITY_EXTRACT_FROM_QUERY_PROMPT = (
-    '你是一个实体识别助手。请从以下用户问题中提取所有具名实体（人物、组织、地点、物品、概念等）。\n'
-    '不要提取代词（我、你、他、她）或泛称（某人、那个人）。\n'
-    '如果问题中没有具名实体，返回空列表。\n\n'
-    '输出格式（严格 JSON 数组）：\n'
-    '["实体1", "实体2", ...]\n\n'
-    '用户问题：{query}\n'
-    '实体列表（JSON）：'
-)
 
 
 class GraphRetriever:
@@ -79,7 +68,7 @@ class GraphRetriever:
 
     def _extract_entities_from_query(self, query: str) -> List[str]:
         """使用 LLM 从查询中提取具名实体。"""
-        prompt = ENTITY_EXTRACT_FROM_QUERY_PROMPT.format(query=query)
+        prompt = prompts.ENTITY_EXTRACT_FROM_QUERY_PROMPT.format(query=query)
         try:
             response = self._llm.complete(prompt)
             text = response.text.strip()

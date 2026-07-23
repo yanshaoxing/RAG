@@ -10,31 +10,10 @@
 import logging
 from typing import Optional
 
+from rag import prompts
 from rag.utils.json_parse import parse_json_obj
 
 logger = logging.getLogger(__name__)
-
-CANONICALIZE_PROMPT = """你是一个实体名称规范化助手。给定一个「候选名称」和一个「已知实体名称列表」，判断候选名称是否是某个已知实体的别名或简称。
-
-候选名称：{candidate}
-
-已知实体名称：
-{known_names}
-
-判断规则：
-1. 如果候选名称是某个已知实体的简称、尊称、昵称、别称，返回该已知实体名称
-2. 如果候选名称和某个已知实体只差"先生"、"女士"、"总"、"哥"、"姐"等后缀，视为同一实体
-3. 如果候选名称和某个已知实体只差姓氏/名字的部分，如"丁元英"和"元英"，视为同一实体
-4. 如果候选名称是一个全新的实体，返回 null
-
-输出格式（严格 JSON）：
-{{"canonical": "已知实体名称"}}
-
-或
-
-{{"canonical": null}}
-
-仅输出 JSON，不要输出其他内容。"""
 
 
 class Canonicalizer:
@@ -89,7 +68,7 @@ class Canonicalizer:
             known_names = known_names[:30]
 
         # 调用 LLM
-        prompt = CANONICALIZE_PROMPT.format(
+        prompt = prompts.CANONICALIZE_PROMPT.format(
             candidate=candidate,
             known_names="\n".join(f"- {n}" for n in known_names),
         )

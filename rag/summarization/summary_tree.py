@@ -18,7 +18,7 @@ from typing import Optional
 
 from llama_index.core import Document
 
-from rag import config
+from rag import config, prompts
 from rag.llm.factory import create_summary_llm
 
 logger = logging.getLogger(__name__)
@@ -104,7 +104,7 @@ def _generate_batch_leaves(batch_nodes: list, batch_start_idx: int) -> list[Summ
     for i, node in enumerate(batch_nodes, start=1):
         chunks_parts.append(f"[{i}] {node.text[:2048]}")
     chunks_str = "\n\n".join(chunks_parts)
-    prompt = config.SUMMARY_LEAF_BATCH_PROMPT.format(chunks=chunks_str)
+    prompt = prompts.SUMMARY_LEAF_BATCH_PROMPT.format(chunks=chunks_str)
 
     try:
         resp = llm.complete(prompt)
@@ -343,13 +343,13 @@ def _generate_parent_summary(
     try:
         llm = create_summary_llm()
         if use_original:
-            prompt = config.SUMMARY_PARENT_FROM_RAW_PROMPT.format(
+            prompt = prompts.SUMMARY_PARENT_FROM_RAW_PROMPT.format(
                 max_chars=chars_limit,
                 section_name=f"{section}" + (f" §{subsection}" if subsection else ""),
                 chapter_text=source_text,
             )
         else:
-            prompt = config.SUMMARY_PARENT_PROMPT.format(
+            prompt = prompts.SUMMARY_PARENT_PROMPT.format(
                 max_chars=chars_limit,
                 child_summaries=source_text,
             )

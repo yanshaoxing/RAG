@@ -13,7 +13,7 @@ from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core import PromptTemplate
 from llama_index.core.schema import NodeWithScore, TextNode, QueryBundle
 
-from rag import config
+from rag import prompts
 from rag.retrieval.hybrid_retriever import HybridRetriever
 from rag.utils.concurrency import run_parallel_captured
 
@@ -79,7 +79,7 @@ def create_query_engine(
     """
     from llama_index.core.response_synthesizers import get_response_synthesizer
 
-    qa_template = PromptTemplate(config.QA_TEMPLATE_STR)
+    qa_template = PromptTemplate(prompts.QA_TEMPLATE_STR)
 
     response_synthesizer = get_response_synthesizer(
         text_qa_template=qa_template,
