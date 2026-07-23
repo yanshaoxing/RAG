@@ -55,6 +55,9 @@ class GraphAugmentedQueryEngine(RetrieverQueryEngine):
                 node=TextNode(
                     text=f"【知识图谱关联信息】\n{graph_text}",
                     metadata={"is_graph_context": True},
+                    # 标记键只供入口层识别，不进 LLM 上下文
+                    excluded_llm_metadata_keys=["is_graph_context"],
+                    excluded_embed_metadata_keys=["is_graph_context"],
                 ),
                 score=min_score,
             )

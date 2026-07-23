@@ -26,9 +26,9 @@ from llama_index.vector_stores.faiss import FaissVectorStore
 from rag import config
 from rag.utils.files import atomic_write_json, mark_stage_done, stage_complete
 from rag.utils.text import tokenize_for_bm25
-from rag.ingestion.preprocessor import load_documents, create_chunking_pipeline
+from rag.ingestion.preprocessor import load_documents, create_chunking_pipeline, CHUNK_EXCLUDED_META_KEYS
 from rag.indexing.embedding_checkpoint import embed_nodes_with_checkpoint, clear_checkpoint
-from rag.summarization.summary_tree import build_summary_tree
+from rag.summarization.summary_tree import build_summary_tree, SUMMARY_EXCLUDED_META_KEYS
 from rag.graph.graph_constructor import build_graph, load_graph
 
 logger = logging.getLogger(__name__)
@@ -60,13 +60,19 @@ def _serialize_nodes(nodes: list) -> list[dict]:
 
 
 def _deserialize_nodes(data: list[dict]) -> list:
-    """从 JSON 字典列表反序列化为节点列表（尽力还原为 TextNode）。"""
+    """从 JSON 字典列表反序列化为节点列表（尽力还原为 TextNode）。
+
+    序列化不保存元数据排除键，加载时必须重新应用 ——
+    否则 section_path 等键会随 metadata 拼进嵌入输入与 LLM 上下文。
+    """
     nodes = []
     for item in data:
         node = TextNode(
             text=item["text"],
             node_id=item.get("node_id", ""),
             metadata=item.get("metadata", {}),
+            excluded_embed_metadata_keys=list(CHUNK_EXCLUDED_META_KEYS),
+            excluded_llm_metadata_keys=list(CHUNK_EXCLUDED_META_KEYS),
         )
         nodes.append(node)
     return nodes
@@ -85,13 +91,19 @@ def _serialize_summary_docs(docs: list[Document]) -> list[dict]:
 
 
 def _deserialize_summary_docs(data: list[dict]) -> list[Document]:
-    """反序列化摘要 Document 列表。"""
+    """反序列化摘要 Document 列表。
+
+    重新应用摘要元数据排除键（序列化不保存）——否则 original_text（≤8192 字）
+    与 child_ids UUID 列表会随 metadata 主导嵌入输入并污染 QA prompt。
+    """
     docs = []
     for item in data:
         doc = Document(
             text=item.get("text", ""),
             doc_id=item.get("doc_id", ""),
             metadata=item.get("metadata", {}),
+            excluded_embed_metadata_keys=list(SUMMARY_EXCLUDED_META_KEYS),
+            excluded_llm_metadata_keys=list(SUMMARY_EXCLUDED_META_KEYS),
         )
         docs.append(doc)
     return docs
@@ -203,9 +215,15 @@ def _stage_bm25(all_nodes: list) -> BM25Retriever:
         # 供 rerank/展示使用，此处不能覆盖（setdefault 保留已有值）
         meta = dict(node.metadata)
         meta.setdefault("original_text", combined)
+        # original_text 仅供检索后恢复正文，绝不能拼进 LLM 上下文
+        # （BM25 命中的节点会直接进入 QA prompt，不排除等于正文翻倍）
         n = node.model_copy(update={
             "text": tokenize_for_bm25(combined),
             "metadata": meta,
+            "excluded_embed_metadata_keys": sorted(
+                set(node.excluded_embed_metadata_keys or []) | {"original_text"}),
+            "excluded_llm_metadata_keys": sorted(
+                set(node.excluded_llm_metadata_keys or []) | {"original_text"}),
         })
         bm25_nodes.append(n)
 
@@ -363,10 +381,11 @@ def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict
     vector_index: Optional[VectorStoreIndex] = None
     graph_index = None  # Optional[PropertyGraphIndex]
 
-    # 阶段 0：分块（如果 start_from <= 0 则执行，否则加载缓存）
+    # 阶段 0：分块（如果 start_from <= 0 则执行，否则加载缓存；
+    # 仅图谱阶段需重建时 chunks 完全用不到，跳过加载）
     if start_from <= 0:
         chunk_nodes = _stage_chunk()
-    else:
+    elif start_from <= 3:
         chunk_nodes = _load_chunks()
 
     # 阶段 1：摘要树
@@ -378,10 +397,11 @@ def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict
     else:
         _log("摘要树未启用，跳过")
 
-    # 构建 all_nodes
-    all_nodes = list(chunk_nodes) if chunk_nodes else []
-    if summary_docs:
-        all_nodes = all_nodes + list(summary_docs)
+    # 构建 all_nodes（仅 BM25 / 向量阶段需要）
+    if start_from <= 3:
+        all_nodes = list(chunk_nodes) if chunk_nodes else []
+        if summary_docs:
+            all_nodes = all_nodes + list(summary_docs)
 
     # 阶段 2：BM25 索引
     if start_from <= 2:

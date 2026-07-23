@@ -29,6 +29,22 @@ def _log(msg: str) -> None:
     logger.info(msg)
 
 
+# 摘要 Document 中不应进入 embedding 输入 / LLM 上下文的元数据键。
+# LlamaIndex 默认把全部 metadata 以 "key: value" 拼在正文前 ——
+# 不排除的话，original_text（≤8192 字）+ child_ids（UUID 列表）会主导
+# 摘要节点的嵌入输入（摘要树的宏观语义检索被架空），并把 ~8KB 冗余
+# 注入最终 QA prompt。file_name/section/subsection 保留（利于溯源）。
+# staged_indexer 反序列化摘要节点时必须重新应用（序列化不保存排除键）。
+SUMMARY_EXCLUDED_META_KEYS = [
+    "original_text",
+    "summary_child_ids",
+    "summary_chunk_range",
+    "is_summary",
+    "summary_level",
+    "summary_fallback",
+]
+
+
 # ======================== 数据结构 ========================
 
 @dataclass
@@ -275,27 +291,9 @@ def _group_by_section(
 # ======================== 父级摘要生成 ========================
 
 
-def _generate_parent_summary(
-    group: SummaryGroup,
-    level: int,
-    use_original: bool = False,
-    max_chars: Optional[int] = None,
-    ratio: Optional[float] = None,
-) -> SummaryNode:
-    """
-    将一个分组的子节点合并为一个父级摘要。
-
-    Args:
-        group: 摘要分组
-        level: 父级摘要的层级
-        use_original: True=用子节点 original_text，False=用子节点 text
-        max_chars: 显式指定摘要字数上限（优先于 ratio）
-        ratio: 摘要字数比例（相对于 source_text 长度），默认 SUMMARY_PARENT_RATIO
-
-    Returns:
-        父级 SummaryNode
-    """
-    # 收集所有孙节点 id 和 chunk_range
+def _assemble_group_info(group: SummaryGroup) -> tuple[list[str], int, int, str, str, str]:
+    """收集分组的孙节点 id、chunk 范围与归属信息，返回
+    (all_child_ids, min_chunk, max_chunk, file_name, section, subsection)。"""
     all_child_ids: list[str] = []
     min_chunk = float("inf")
     max_chunk = -1
@@ -317,18 +315,56 @@ def _generate_parent_summary(
         if not subsection and child.subsection:
             subsection = child.subsection
 
-    # 构建输入源文本
+    return all_child_ids, int(min_chunk), int(max_chunk), fname, section, subsection
+
+
+def _build_group_source_text(group: SummaryGroup, use_original: bool) -> str:
+    """构建分组的输入源文本：use_original=True 拼子节点原文，否则拼编号子摘要。"""
     if use_original:
-        source_parts = []
-        for child in group.children:
-            if child.original_text:
-                source_parts.append(child.original_text)
-        source_text = "\n\n".join(source_parts)
-    else:
-        child_parts = []
-        for idx, child in enumerate(group.children, start=1):
-            child_parts.append(f"[{idx}] {child.text}")
-        source_text = "\n".join(child_parts)
+        return "\n\n".join(c.original_text for c in group.children if c.original_text)
+    return "\n".join(f"[{idx}] {c.text}" for idx, c in enumerate(group.children, start=1))
+
+
+def _fallback_parent_summary(group: SummaryGroup, level: int, use_original: bool = True) -> SummaryNode:
+    """worker 整体异常时的兜底：原文截断生成降级父级摘要（不调 LLM），与 L1 行为对齐。"""
+    all_child_ids, min_chunk, max_chunk, fname, section, subsection = _assemble_group_info(group)
+    source_text = _build_group_source_text(group, use_original)
+    return SummaryNode(
+        text=source_text[:200] + "...",
+        node_id=f"summary_L{level}_{min_chunk}_{max_chunk}",
+        level=level,
+        child_ids=all_child_ids,
+        file_name=fname,
+        section=section,
+        subsection=subsection,
+        chunk_range=(min_chunk, max_chunk),
+        original_text=source_text,
+        is_fallback=True,
+    )
+
+
+def _generate_parent_summary(
+    group: SummaryGroup,
+    level: int,
+    use_original: bool = False,
+    max_chars: Optional[int] = None,
+    ratio: Optional[float] = None,
+) -> SummaryNode:
+    """
+    将一个分组的子节点合并为一个父级摘要。
+
+    Args:
+        group: 摘要分组
+        level: 父级摘要的层级
+        use_original: True=用子节点 original_text，False=用子节点 text
+        max_chars: 显式指定摘要字数上限（优先于 ratio）
+        ratio: 摘要字数比例（相对于 source_text 长度），默认 SUMMARY_PARENT_RATIO
+
+    Returns:
+        父级 SummaryNode
+    """
+    all_child_ids, min_chunk, max_chunk, fname, section, subsection = _assemble_group_info(group)
+    source_text = _build_group_source_text(group, use_original)
 
     # 动态字数上限
     if max_chars is not None:
@@ -362,7 +398,7 @@ def _generate_parent_summary(
     if is_fallback:
         parent_text = source_text[:200] + "..."
 
-    parent_id = f"summary_L{level}_{int(min_chunk)}_{int(max_chunk)}"
+    parent_id = f"summary_L{level}_{min_chunk}_{max_chunk}"
     return SummaryNode(
         text=parent_text,
         node_id=parent_id,
@@ -371,7 +407,7 @@ def _generate_parent_summary(
         file_name=fname,
         section=section,
         subsection=subsection,
-        chunk_range=(int(min_chunk), int(max_chunk)),
+        chunk_range=(min_chunk, max_chunk),
         original_text=source_text,
         is_fallback=is_fallback,
     )
@@ -399,9 +435,14 @@ def _generate_subsection_summaries(leaves: list[SummaryNode]) -> list[SummaryNod
 
     if max_workers <= 1:
         for g in groups:
-            l2_nodes.append(_generate_parent_summary(
-                g, level=2, use_original=True, ratio=config.SUMMARY_PARENT_RATIO,
-            ))
+            try:
+                l2_nodes.append(_generate_parent_summary(
+                    g, level=2, use_original=True, ratio=config.SUMMARY_PARENT_RATIO,
+                ))
+            except Exception as e:
+                logger.exception("L2 小节摘要任务异常 (section=%s §%s): %s",
+                                 g.section, g.subsection, e)
+                l2_nodes.append(_fallback_parent_summary(g, level=2))
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_group = {
@@ -415,9 +456,11 @@ def _generate_subsection_summaries(leaves: list[SummaryNode]) -> list[SummaryNod
                 try:
                     l2_nodes.append(future.result())
                 except Exception as e:
+                    # worker 整体异常不能让该小节在摘要树中缺失：降级为原文截断（与 L1 对齐）
                     g = future_to_group[future]
                     logger.exception("L2 小节摘要任务异常 (section=%s §%s): %s",
                                      g.section, g.subsection, e)
+                    l2_nodes.append(_fallback_parent_summary(g, level=2))
 
     _log(f"  L2 小节摘要生成完成，共 {len(l2_nodes)} 条")
     return l2_nodes
@@ -468,9 +511,13 @@ def _generate_chapter_summaries(l2_nodes: list[SummaryNode]) -> list[SummaryNode
 
     if max_workers <= 1:
         for g in chapters_for_l3:
-            l3_nodes.append(_generate_parent_summary(
-                g, level=3, use_original=True, ratio=config.SUMMARY_CHAPTER_RATIO,
-            ))
+            try:
+                l3_nodes.append(_generate_parent_summary(
+                    g, level=3, use_original=True, ratio=config.SUMMARY_CHAPTER_RATIO,
+                ))
+            except Exception as e:
+                logger.exception("L3 章节摘要任务异常 (section=%s): %s", g.section, e)
+                l3_nodes.append(_fallback_parent_summary(g, level=3))
     else:
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_group = {
@@ -484,8 +531,10 @@ def _generate_chapter_summaries(l2_nodes: list[SummaryNode]) -> list[SummaryNode
                 try:
                     l3_nodes.append(future.result())
                 except Exception as e:
+                    # worker 整体异常不能让该章节在摘要树中缺失：降级为原文截断（与 L1 对齐）
                     g = future_to_group[future]
                     logger.exception("L3 章节摘要任务异常 (section=%s): %s", g.section, e)
+                    l3_nodes.append(_fallback_parent_summary(g, level=3))
 
     _log(f"  L3 章节摘要生成完成，共 {len(l3_nodes)} 条")
     return l3_nodes
@@ -713,6 +762,9 @@ def build_summary_tree(nodes: list) -> tuple[list[Document], dict[str, dict]]:
                 "summary_fallback": sn.is_fallback,
             },
             doc_id=sn.node_id,
+            # 排除大体积/结构性元数据，防止其污染嵌入输入与 QA prompt
+            excluded_embed_metadata_keys=list(SUMMARY_EXCLUDED_META_KEYS),
+            excluded_llm_metadata_keys=list(SUMMARY_EXCLUDED_META_KEYS),
         )
         summary_docs.append(doc)
 

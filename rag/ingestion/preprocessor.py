@@ -19,6 +19,12 @@ from rag import config
 
 logger = logging.getLogger(__name__)
 
+# chunk 节点中不进入 embedding 输入 / LLM 上下文的元数据键：
+# section_path 恒等于 section（重复注入无意义）。file_name/section/subsection
+# 保留 —— 少量前缀上下文对嵌入与溯源都有益。
+# staged_indexer 反序列化 chunk 节点时必须重新应用（序列化不保存排除键）。
+CHUNK_EXCLUDED_META_KEYS = ["section_path"]
+
 
 # ============================================================
 # 章节 / 子章节模式
@@ -171,6 +177,9 @@ def load_documents(data_dir: Optional[str] = None) -> list[Document]:
                         "subsection": sub["subsection"],
                         "section_path": sec["section_path"],
                     },
+                    # HierarchicalChunker._make_node 会把排除键继承给所有 chunk 节点
+                    excluded_embed_metadata_keys=list(CHUNK_EXCLUDED_META_KEYS),
+                    excluded_llm_metadata_keys=list(CHUNK_EXCLUDED_META_KEYS),
                 )
                 raw_documents.append(doc)
 
