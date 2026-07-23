@@ -51,17 +51,26 @@ class Canonicalizer:
         if candidate in self._local_map:
             return self._local_map[candidate]
 
-        # 快速规则：已知名称包含候选名称
-        for name in known_names:
-            if len(candidate) >= 2 and candidate in name:
-                self._local_map[candidate] = name
-                return name
+        # 快速规则：已知名称包含候选名称（如 "元英" → "丁元英"）。
+        # 多个已知名都包含候选时取最短者（额外字符最少 = 最可能是同一实体），
+        # 同长按字典序 —— 结果与 known_names 的列表顺序无关，保证确定性
+        if len(candidate) >= 2:
+            containing = [n for n in known_names if candidate in n and n != candidate]
+            if containing:
+                best = min(containing, key=lambda n: (len(n), n))
+                self._local_map[candidate] = best
+                return best
 
-        # 快速规则：候选名称包含已知名称
-        for name in known_names:
-            if len(name) >= 2 and name in candidate and len(candidate) <= len(name) + 2:
-                self._local_map[candidate] = name
-                return name
+        # 快速规则：候选名称包含已知名称（如 "丁元英先生" → "丁元英"，候选最多长 2 字）。
+        # 取最长的已知名（匹配最具体），同长按字典序保证确定性
+        contained = [
+            n for n in known_names
+            if len(n) >= 2 and n in candidate and len(candidate) <= len(n) + 2
+        ]
+        if contained:
+            best = max(contained, key=lambda n: (len(n), n))
+            self._local_map[candidate] = best
+            return best
 
         # 太多已知名称时，只取前 30 个做 LLM 判断
         if len(known_names) > 30:
