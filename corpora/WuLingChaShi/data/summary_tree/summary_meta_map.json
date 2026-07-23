@@ -1,0 +1,95 @@
+{
+  "summary_leaf_880d42b9-547a-43fe-b197-da3b6406ba24": {
+    "level": 1,
+    "child_ids": [
+      "880d42b9-547a-43fe-b197-da3b6406ba24"
+    ],
+    "chunk_range": [
+      0,
+      0
+    ],
+    "file_name": "WuLingChaShi.txt",
+    "section": "第一章 春茶",
+    "subsection": ""
+  },
+  "summary_leaf_a55a6347-6431-458f-a738-2e1dc51c0ee2": {
+    "level": 1,
+    "child_ids": [
+      "a55a6347-6431-458f-a738-2e1dc51c0ee2"
+    ],
+    "chunk_range": [
+      1,
+      1
+    ],
+    "file_name": "WuLingChaShi.txt",
+    "section": "第二章 来客",
+    "subsection": ""
+  },
+  "summary_leaf_db6dbd98-ad59-4f64-8fe9-22d67346ec99": {
+    "level": 1,
+    "child_ids": [
+      "db6dbd98-ad59-4f64-8fe9-22d67346ec99"
+    ],
+    "chunk_range": [
+      2,
+      2
+    ],
+    "file_name": "WuLingChaShi.txt",
+    "section": "第三章 新路",
+    "subsection": ""
+  },
+  "summary_L2_0_0": {
+    "level": 2,
+    "child_ids": [
+      "880d42b9-547a-43fe-b197-da3b6406ba24"
+    ],
+    "chunk_range": [
+      0,
+      0
+    ],
+    "file_name": "WuLingChaShi.txt",
+    "section": "第一章 春茶",
+    "subsection": ""
+  },
+  "summary_L2_1_1": {
+    "level": 2,
+    "child_ids": [
+      "a55a6347-6431-458f-a738-2e1dc51c0ee2"
+    ],
+    "chunk_range": [
+      1,
+      1
+    ],
+    "file_name": "WuLingChaShi.txt",
+    "section": "第二章 来客",
+    "subsection": ""
+  },
+  "summary_L2_2_2": {
+    "level": 2,
+    "child_ids": [
+      "db6dbd98-ad59-4f64-8fe9-22d67346ec99"
+    ],
+    "chunk_range": [
+      2,
+      2
+    ],
+    "file_name": "WuLingChaShi.txt",
+    "section": "第三章 新路",
+    "subsection": ""
+  },
+  "summary_L4_0_2": {
+    "level": 4,
+    "child_ids": [
+      "880d42b9-547a-43fe-b197-da3b6406ba24",
+      "a55a6347-6431-458f-a738-2e1dc51c0ee2",
+      "db6dbd98-ad59-4f64-8fe9-22d67346ec99"
+    ],
+    "chunk_range": [
+      0,
+      2
+    ],
+    "file_name": "WuLingChaShi.txt",
+    "section": "第一章 春茶",
+    "subsection": ""
+  }
+}
