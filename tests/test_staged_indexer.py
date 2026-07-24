@@ -66,15 +66,19 @@ class TestEmbedModelGuard:
         _check_embed_model_match()
 
 
-# ======================== 阶段跳转矩阵 ========================
+# ======================== 阶段依赖图 / 跳转矩阵 ========================
 #
-# get_or_build_index() 的 if 链（staged_indexer.py:388-466）是全项目最容易改错的地方：
-# 删掉第 N 阶段目录后从哪一步开始重建、哪些前置产物该「加载」而非「重建」，全靠这段。
+# get_or_build_index() 按【依赖闭包】判定各阶段是否需要重建，是全项目最容易改错的地方：
+# 删掉某阶段目录后哪些下游该连带重建、哪些前置产物该「加载」而非「重建」，全靠这段。
 # 改错时不会报错，只会静默多跑或少跑阶段（重则整本书 LLM 白烧一遍）。
+#
+# 依赖图（raw/ 是隐含源）：chunks → summary → {bm25, vector}；graph → (raw)。
+# 关键性质（P2-6）：图谱只依赖 raw/，检索阶段（分块/摘要/bm25/向量）的重建【不连带】它；
+# bm25 与 vector 互不依赖，也不再互相牵连。
 #
 # 这里用桩函数替换全部 5 个 build 阶段 + 5 个 load 分支，只断言【调用了哪些、按什么顺序】，
 # 不做任何真实索引/IO。_stage_complete 被替换为「路径是否在 completed 集合里」，
-# 借此精确控制 start_from。删除循环里的 rmtree / os.path.exists 也一并桩掉，
+# 借此精确控制哪些阶段「已完成」。删除循环里的 rmtree / os.path.exists 也一并桩掉，
 # 绝不能让测试误删真实语料的 data/ 目录。
 
 _STAGE_PATHS = ["CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR", "PERSIST_DIR", "GRAPH_DB_DIR"]
@@ -137,61 +141,82 @@ class TestStageTransitionMatrix:
         monkeypatch.setattr(config, "SUMMARY_TREE_ENABLED", True)
         monkeypatch.setattr(config, "GRAPH_ENABLED", True)
 
-    # ---- 全启用：删第 N 阶段 → 恰好 rebuild 第 N..4、load 第 0..N-1 ----
+    # ---- 全部完成：全部加载（chunks 非返回值、无下游重建 → 不加载） ----
 
     def test_全部完成时全部走加载(self, harness):
         calls, deleted = harness(set(_STAGE_PATHS))
-        assert calls == ["load_chunks", "load_summary", "load_bm25", "load_vector", "load_graph"]
+        # chunks 仅作下游构建的输入，全加载时无人需要它 → 省一次反序列化
+        assert calls == ["load_summary", "load_bm25", "load_vector", "load_graph"]
+        assert "load_chunks" not in calls
         assert deleted == []  # 什么都不重建，就不该删任何东西
 
-    def test_删分块阶段_从头重建(self, harness):
-        calls, _ = harness(set())  # 没有任何阶段完成 → start_from=0
+    def test_全空_从头重建(self, harness):
+        calls, _ = harness(set())  # 没有任何阶段完成
         assert calls == ["stage_chunk", "stage_summary", "stage_bm25", "stage_vector", "build_graph"]
 
-    def test_删摘要阶段_加载分块其余重建(self, harness):
-        calls, _ = harness({"CHUNKS_DIR"})
-        assert calls == ["load_chunks", "stage_summary", "stage_bm25", "stage_vector", "build_graph"]
+    # ---- 单阶段删除：依赖闭包内重建，闭包外加载 ----
 
-    def test_删bm25阶段(self, harness):
-        calls, _ = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR"})
-        assert calls == ["load_chunks", "load_summary", "stage_bm25", "stage_vector", "build_graph"]
+    def test_只删分块_下游检索阶段连带重建但图谱不连带(self, harness):
+        calls, _ = harness({"SUMMARY_TREE_DIR", "BM25_DIR", "PERSIST_DIR", "GRAPH_DB_DIR"})
+        # chunks dirty → summary/bm25/vector 连带重建；graph 只依赖 raw/ → 加载不重建
+        assert calls == ["stage_chunk", "stage_summary", "stage_bm25", "stage_vector", "load_graph"]
 
-    def test_删向量阶段(self, harness):
-        calls, _ = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR"})
-        assert calls == ["load_chunks", "load_summary", "load_bm25", "stage_vector", "build_graph"]
+    def test_只删摘要_下游bm25向量重建但图谱不连带(self, harness):
+        calls, _ = harness({"CHUNKS_DIR", "BM25_DIR", "PERSIST_DIR", "GRAPH_DB_DIR"})
+        assert calls == ["load_chunks", "stage_summary", "stage_bm25", "stage_vector", "load_graph"]
 
-    def test_只删图谱阶段_前四阶段全加载且不加载chunks(self, harness):
-        # 关键分支：仅图谱重建时 chunks 用不到，既不 build 也不 load（省一次反序列化）
+    def test_只删向量_图谱不连带重建(self, harness):
+        # P2-6 核心：删向量只重建向量，图谱（只依赖 raw/）被加载而非连带重建
+        calls, _ = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR", "GRAPH_DB_DIR"})
+        assert calls == ["load_chunks", "load_summary", "load_bm25", "stage_vector", "load_graph"]
+
+    def test_只删bm25_向量不连带重建(self, harness):
+        # bm25 与 vector 互不依赖：删 bm25 时 vector 应加载而非重建（旧线性链会连带重建）
+        calls, _ = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "PERSIST_DIR", "GRAPH_DB_DIR"})
+        assert calls == ["load_chunks", "load_summary", "stage_bm25", "load_vector", "load_graph"]
+
+    def test_只删图谱_检索阶段全加载且不加载chunks(self, harness):
+        # 仅图谱重建时 chunks 用不到，既不 build 也不 load（省一次反序列化）
         calls, _ = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR", "PERSIST_DIR"})
         assert calls == ["load_summary", "load_bm25", "load_vector", "build_graph"]
         assert "load_chunks" not in calls and "stage_chunk" not in calls
 
-    # ---- 删除范围：只删 start_from 及其下游 ----
+    # ---- 删除范围：只删 dirty 阶段（依赖闭包），闭包外产物原样保留 ----
 
-    def test_删向量阶段只清理向量与图谱目录(self, harness):
-        _, deleted = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR"})
-        # start_from=3（向量）→ 清理向量 + 图谱，不动分块/摘要/bm25
-        assert config.PERSIST_DIR in deleted
-        assert config.GRAPH_DB_DIR in deleted
-        assert config.CHUNKS_DIR not in deleted
-        assert config.BM25_DIR not in deleted
+    def test_删向量只清理向量目录_不动图谱(self, harness):
+        _, deleted = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR", "GRAPH_DB_DIR"})
+        # 只删向量；图谱/分块/摘要/bm25 全部原样保留（这正是 P2-6 修的浪费）
+        assert deleted == [config.PERSIST_DIR]
+        assert config.GRAPH_DB_DIR not in deleted
+
+    def test_删分块清理检索链但不删图谱(self, harness):
+        _, deleted = harness({"SUMMARY_TREE_DIR", "BM25_DIR", "PERSIST_DIR", "GRAPH_DB_DIR"})
+        assert set(deleted) == {config.CHUNKS_DIR, config.SUMMARY_TREE_DIR,
+                                config.BM25_DIR, config.PERSIST_DIR}
+        assert config.GRAPH_DB_DIR not in deleted
 
     # ---- 功能开关：禁用阶段既不参与完成度扫描，也不 build/load ----
 
     def test_禁用摘要树时跳过摘要阶段(self, harness, monkeypatch):
         monkeypatch.setattr(config, "SUMMARY_TREE_ENABLED", False)
-        # 摘要目录「未完成」也不该触发重建；从分块之后直接到 bm25
+        # 摘要禁用 → 不参与 dirty 判定、不向 bm25/vector 传播；这里其余阶段均完成
         calls, _ = harness({"CHUNKS_DIR", "BM25_DIR", "PERSIST_DIR", "GRAPH_DB_DIR"})
         assert "stage_summary" not in calls and "load_summary" not in calls
-        assert calls == ["load_chunks", "load_bm25", "load_vector", "load_graph"]
+        assert calls == ["load_bm25", "load_vector", "load_graph"]
 
     def test_禁用图谱时跳过图谱阶段(self, harness, monkeypatch):
-        # 注意：全部完成的加载分支里 load_graph() 是无条件调用的，
-        # GRAPH_ENABLED 的守卫只在【重建路径】生效，故这里用删向量触发重建。
         monkeypatch.setattr(config, "GRAPH_ENABLED", False)
+        # 图谱禁用：无论重建还是加载路径都不该碰它（新版无「无条件 load_graph」分支）
         calls, _ = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR"})
         assert "build_graph" not in calls and "load_graph" not in calls
         assert calls == ["load_chunks", "load_summary", "load_bm25", "stage_vector"]
+
+    def test_禁用图谱_全完成也不加载图谱(self, harness, monkeypatch):
+        # 回归：旧线性链在「全完成」分支里无条件 load_graph()，新版依赖图不会
+        monkeypatch.setattr(config, "GRAPH_ENABLED", False)
+        calls, _ = harness({"CHUNKS_DIR", "SUMMARY_TREE_DIR", "BM25_DIR", "PERSIST_DIR"})
+        assert "load_graph" not in calls and "build_graph" not in calls
+        assert calls == ["load_summary", "load_bm25", "load_vector"]
 
     def test_返回值形状(self, harness):
         """返回 (向量索引, bm25, 摘要元数据, 图谱索引) 四元组，桩值按序对上。"""
@@ -201,3 +226,42 @@ class TestStageTransitionMatrix:
         vec, bm25, meta_map, graph = result
         assert (vec, bm25, graph) == ("VEC", "BM25", "GRAPH")
         assert meta_map == {}
+
+
+# ======================== 依赖闭包 / --rebuild 计划 ========================
+
+class TestRebuildClosure:
+    def test_闭包_删分块波及全部检索阶段但不含图谱(self):
+        assert [s.key for s in staged_indexer.plan_rebuild("chunks")] == \
+            ["chunks", "summary", "bm25", "vector"]
+
+    def test_闭包_删摘要波及bm25与向量(self):
+        assert [s.key for s in staged_indexer.plan_rebuild("summary")] == \
+            ["summary", "bm25", "vector"]
+
+    def test_闭包_bm25与向量互不牵连(self):
+        assert [s.key for s in staged_indexer.plan_rebuild("bm25")] == ["bm25"]
+        assert [s.key for s in staged_indexer.plan_rebuild("vector")] == ["vector"]
+
+    def test_闭包_图谱独立(self):
+        assert [s.key for s in staged_indexer.plan_rebuild("graph")] == ["graph"]
+
+    def test_未知阶段报错(self):
+        with pytest.raises(ValueError, match="未知阶段"):
+            staged_indexer.plan_rebuild("bogus")
+
+    def test_rebuild_预览不删除(self, monkeypatch):
+        deleted = []
+        monkeypatch.setattr(staged_indexer.shutil, "rmtree", lambda p, **kw: deleted.append(p))
+        monkeypatch.setattr(staged_indexer.os.path, "exists", lambda p: True)
+        stages = staged_indexer.rebuild_stages("vector", apply=False)
+        assert [s.key for s in stages] == ["vector"]
+        assert deleted == []  # 预览态绝不删
+
+    def test_rebuild_apply真删闭包内目录(self, monkeypatch):
+        deleted = []
+        monkeypatch.setattr(staged_indexer.shutil, "rmtree", lambda p, **kw: deleted.append(p))
+        monkeypatch.setattr(staged_indexer.os.path, "exists", lambda p: True)
+        staged_indexer.rebuild_stages("summary", apply=True)
+        # 删除摘要 + 下游 bm25/向量，不含分块/图谱
+        assert set(deleted) == {config.SUMMARY_TREE_DIR, config.BM25_DIR, config.PERSIST_DIR}

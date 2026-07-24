@@ -2,17 +2,19 @@
 分阶段索引构建管线 —— 每个阶段的产物持久化到独立文件夹。
 若中途失败，只需删除未完成阶段的文件夹即可从中断处继续。
 
-阶段：
-  1. 分块       → chunks/
-  2. 摘要树     → summary_tree/
-  3. BM25 索引  → bm25/
-  4. 向量索引   → vector/
+阶段（依赖图见下方 _STAGES，重建按依赖闭包传播而非线性区间）：
+  1. 分块       → chunks/     （依赖 raw/）
+  2. 摘要树     → summary_tree/（依赖 chunks）
+  3. BM25 索引  → bm25/        （依赖 chunks + summary）
+  4. 向量索引   → vector/      （依赖 chunks + summary）
+  5. 知识图谱   → graph_db/    （只依赖 raw/，与检索阶段互不连带）
 """
 
 import json
 import logging
 import os
 import shutil
+from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
@@ -353,109 +355,169 @@ def _load_vector() -> VectorStoreIndex:
     return index
 
 
+# ======================== 阶段依赖图 ========================
+#
+# 阶段不再是线性链，而是带依赖声明的有向图（raw/ 原文是所有构建的隐含源，不列为阶段）：
+#
+#     raw ─┬─▶ chunks ─▶ summary ─┬─▶ bm25
+#          │                      └─▶ vector
+#          └─▶ graph
+#
+# 重建按【依赖闭包】传播：某阶段重建 → 依赖它的下游阶段一并重建；不依赖它的阶段
+# （尤其图谱——只依赖 raw/）不受连带。这修掉了旧线性链「删向量却连带重建图谱」
+# 的浪费（小语料几秒，全书是数小时 + 数元）。bm25 与 vector 互不依赖，也不再互相牵连。
+
+
+@dataclass(frozen=True)
+class _Stage:
+    key: str                    # 稳定标识（供 --rebuild 使用，勿改）
+    name: str                   # 中文显示名
+    path_attr: str              # config 上的动态路径属性名（随激活语料变化）
+    deps: tuple[str, ...]       # 直接依赖的上游阶段 key（不含隐含源 raw/）
+
+    @property
+    def path(self) -> str:
+        return getattr(config, self.path_attr)
+
+
+# 拓扑序排列（上游在前），_compute_dirty 一次线性扫描即可传播 dirty
+_STAGES: list[_Stage] = [
+    _Stage("chunks",  "分块",       "CHUNKS_DIR",       ()),
+    _Stage("summary", "摘要树",     "SUMMARY_TREE_DIR", ("chunks",)),
+    _Stage("bm25",    "BM25 索引",  "BM25_DIR",         ("chunks", "summary")),
+    _Stage("vector",  "向量索引",   "PERSIST_DIR",      ("chunks", "summary")),
+    _Stage("graph",   "知识图谱",   "GRAPH_DB_DIR",     ()),
+]
+_STAGE_BY_KEY: dict[str, _Stage] = {s.key: s for s in _STAGES}
+STAGE_KEYS: list[str] = [s.key for s in _STAGES]  # 供 CLI --rebuild 的 choices
+
+
+def _stage_enabled(key: str) -> bool:
+    """阶段是否启用（受 config 功能开关控制）。"""
+    if key == "summary":
+        return config.SUMMARY_TREE_ENABLED
+    if key == "graph":
+        return config.GRAPH_ENABLED
+    return True
+
+
+def _compute_dirty() -> dict[str, bool]:
+    """按依赖闭包判定各阶段是否需要（重）建。
+
+    某阶段 dirty ⇔ 它已启用，且（自身产物缺失/中断残留 或 任一上游阶段 dirty）。
+    _STAGES 已按拓扑序排列，故一次线性扫描即可把 dirty 沿依赖边传播下去。
+    未启用阶段恒 False（既不参与完成度扫描，也不向下游传播）。
+    """
+    dirty: dict[str, bool] = {}
+    for st in _STAGES:
+        if not _stage_enabled(st.key):
+            dirty[st.key] = False
+            continue
+        d = not _stage_complete(st.path)
+        if any(dirty.get(dep) for dep in st.deps):
+            d = True
+        dirty[st.key] = d
+    return dirty
+
+
+def _downstream_closure(key: str) -> list[str]:
+    """key 阶段自身 + 所有（传递）依赖它的下游阶段 key，按拓扑序返回。"""
+    closure = {key}
+    changed = True
+    while changed:
+        changed = False
+        for st in _STAGES:
+            if st.key not in closure and any(dep in closure for dep in st.deps):
+                closure.add(st.key)
+                changed = True
+    return [s.key for s in _STAGES if s.key in closure]
+
+
+def plan_rebuild(key: str) -> list[_Stage]:
+    """给定阶段 key，返回重建将波及的阶段（自身 + 下游依赖闭包，拓扑序）。
+
+    不做删除，仅用于向用户展示「将删除/重建哪些阶段」。未知 key 抛 ValueError。
+    """
+    if key not in _STAGE_BY_KEY:
+        raise ValueError(f"未知阶段 {key!r}，可选：{', '.join(STAGE_KEYS)}")
+    return [_STAGE_BY_KEY[k] for k in _downstream_closure(key)]
+
+
+def rebuild_stages(key: str, apply: bool = False) -> list[_Stage]:
+    """删除阶段 key 及其下游闭包的产物目录（apply=False 仅返回计划、不删）。
+
+    删除后由入口重新运行 get_or_build_index() 检测缺失并重建。
+    """
+    stages = plan_rebuild(key)
+    if apply:
+        for st in stages:
+            if os.path.exists(st.path):
+                shutil.rmtree(st.path, ignore_errors=True)
+                _log(f"  已删除阶段产物: {st.name} — {st.path}")
+    return stages
+
+
 # ======================== 管线控制器 ========================
 
 def get_or_build_index() -> tuple[VectorStoreIndex, BM25Retriever, dict | None, Optional["PropertyGraphIndex"]]:
-    """分阶段索引管线控制器。
+    """分阶段索引管线控制器（依赖图版）。
 
-    按序检查各阶段产物目录，从第一个缺失的阶段开始执行。
-    已完成阶段的文件夹保留不动，无需重建。
+    按依赖闭包判定各阶段是否需要重建：删除全部 dirty 阶段目录，重建 dirty 阶段，
+    其余从磁盘加载。图谱只依赖 raw/，故检索阶段的重建不会连带它。
 
     返回: (向量索引, BM25 检索器, 摘要树元数据映射, 知识图谱索引或 None)
     """
-    # 定义阶段列表：(阶段名, 产物目录, 是否启用)
-    stages: list[tuple[str, str, bool]] = [
-        ("分块",       config.CHUNKS_DIR,       True),
-        ("摘要树",     config.SUMMARY_TREE_DIR, config.SUMMARY_TREE_ENABLED),
-        ("BM25 索引",  config.BM25_DIR,         True),
-        ("向量索引",   config.PERSIST_DIR,      True),
-        ("知识图谱",   config.GRAPH_DB_DIR,     config.GRAPH_ENABLED),
-    ]
+    dirty = _compute_dirty()
 
-    # 找到第一个未完成的【启用】阶段（以 _DONE.json 完成标记为准，
-    # 目录存在但无标记视为中断残留，需要重建）
-    start_from = None
-    for i, (name, path, enabled) in enumerate(stages):
-        if enabled and not _stage_complete(path):
-            start_from = i
-            break
-
-    if start_from is None:
-        # ---- 全部完成：从磁盘加载 ----
+    # ---- 删除所有 dirty 阶段的目录（仅这些；依赖闭包外的产物原样保留） ----
+    to_rebuild = [st for st in _STAGES if dirty[st.key]]
+    if to_rebuild:
+        names = "、".join(st.name for st in to_rebuild)
+        print(f"检测到需（重）建阶段：{names}（产物缺失/中断残留或上游变动）...", flush=True)
+        _log(f"需（重）建阶段：{names}")
+        for st in to_rebuild:
+            if os.path.exists(st.path):
+                shutil.rmtree(st.path, ignore_errors=True)
+                _log(f"  已清理旧产物: {st.path}")
+    else:
         print("所有阶段产物已就绪，从磁盘加载...", flush=True)
         _log("所有阶段产物已就绪，从磁盘加载")
 
+    # ---- 分块（自身不是返回值，仅作下游构建的输入；仅在需要时加载） ----
+    need_chunks = any(dirty[k] for k in ("summary", "bm25", "vector"))
+    chunk_nodes: list | None = None
+    if dirty["chunks"]:
+        chunk_nodes = _stage_chunk()
+    elif need_chunks:
         chunk_nodes = _load_chunks()
 
-        if config.SUMMARY_TREE_ENABLED:
-            summary_docs, summary_meta_map = _load_summary()
-        else:
-            summary_docs, summary_meta_map = [], None
-            _log("摘要树未启用，跳过")
-
-        bm25_retriever = _load_bm25()
-        vector_index = _load_vector()
-        graph_index = load_graph()
-
-        return vector_index, bm25_retriever, summary_meta_map, graph_index
-
-    # ---- 需要重建：从 start_from 开始 ----
-    print(f"检测到阶段「{stages[start_from][0]}」未完成（产物缺失或中断残留），"
-          f"从该阶段开始重建...", flush=True)
-    _log(f"阶段「{stages[start_from][0]}」未完成，从该阶段开始重建")
-
-    # 删除 start_from 及之后所有【启用】阶段的目录
-    for i in range(start_from, len(stages)):
-        name, path, enabled = stages[i]
-        if enabled and os.path.exists(path):
-            shutil.rmtree(path, ignore_errors=True)
-            _log(f"  已清理旧产物: {path}")
-
-    # ---- 逐步执行各阶段 ----
-    chunk_nodes: list | None = None
+    # ---- 摘要树（meta_map 是返回值，启用则必 build/load） ----
     summary_docs: list = []
     summary_meta_map: dict | None = None
-    bm25_retriever: BM25Retriever | None = None
-    vector_index: VectorStoreIndex | None = None
-    graph_index = None  # Optional[PropertyGraphIndex]
-
-    # 阶段 0：分块（如果 start_from <= 0 则执行，否则加载缓存；
-    # 仅图谱阶段需重建时 chunks 完全用不到，跳过加载）
-    if start_from <= 0:
-        chunk_nodes = _stage_chunk()
-    elif start_from <= 3:
-        chunk_nodes = _load_chunks()
-
-    # 阶段 1：摘要树
     if config.SUMMARY_TREE_ENABLED:
-        if start_from <= 1:
+        if dirty["summary"]:
             summary_docs, summary_meta_map = _stage_summary(chunk_nodes)
         else:
             summary_docs, summary_meta_map = _load_summary()
     else:
         _log("摘要树未启用，跳过")
 
-    # 构建 all_nodes（仅 BM25 / 向量阶段需要）
-    if start_from <= 3:
+    # ---- BM25 / 向量的输入节点集（仅任一需重建时才拼装） ----
+    if dirty["bm25"] or dirty["vector"]:
         all_nodes = list(chunk_nodes) if chunk_nodes else []
         if summary_docs:
             all_nodes = all_nodes + list(summary_docs)
 
-    # 阶段 2：BM25 索引
-    if start_from <= 2:
-        bm25_retriever = _stage_bm25(all_nodes)
-    else:
-        bm25_retriever = _load_bm25()
+    # ---- BM25 索引 ----
+    bm25_retriever = _stage_bm25(all_nodes) if dirty["bm25"] else _load_bm25()
 
-    # 阶段 3：向量索引
-    if start_from <= 3:
-        vector_index = _stage_vector(all_nodes)
-    else:
-        vector_index = _load_vector()
+    # ---- 向量索引 ----
+    vector_index = _stage_vector(all_nodes) if dirty["vector"] else _load_vector()
 
-    # 阶段 4：知识图谱（按节抽取，独立于检索分块）
+    # ---- 知识图谱（按节抽取，只依赖 raw/，与检索阶段互不连带） ----
+    graph_index = None  # Optional[PropertyGraphIndex]
     if config.GRAPH_ENABLED:
-        if start_from <= 4:
+        if dirty["graph"]:
             raw_documents = load_documents()
             graph_index = build_graph(raw_documents, Settings.llm)
         else:

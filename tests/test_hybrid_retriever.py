@@ -188,6 +188,70 @@ class TestBM25QueryTokenization:
         assert " " in sent
 
 
+# ---------- 查询级缓存（P2-4） ----------
+
+class TestQueryCache:
+    """key = (语料 slug + 原始 query + 检索 config 指纹)，只缓存检索结果、默认关。
+
+    命中判据：向量检索器的调用次数——命中缓存时不再触发任何检索（每次单查询走两路向量）。
+    """
+
+    def _retriever(self, vec, bm25):
+        return HybridRetriever(
+            vector_retriever=vec, bm25_retriever=bm25,
+            reranker=None, query_rewriter=None, summary_meta_map={}, decomposer=None,
+        )
+
+    def test_默认关闭时每次都跑管线(self, _rrf_config, monkeypatch):
+        monkeypatch.setattr(config, "QUERY_CACHE_ENABLED", False)
+        vec = _FakeRetriever([_node("v1", 0.9)])
+        r = self._retriever(vec, _FakeRetriever([]))
+        r._retrieve(QueryBundle("同一个问题"))
+        r._retrieve(QueryBundle("同一个问题"))
+        assert len(vec.queries) == 4   # 两次查询各两路向量，全部真跑
+
+    def test_开启后相同查询命中缓存跳过管线(self, _rrf_config, monkeypatch):
+        monkeypatch.setattr(config, "QUERY_CACHE_ENABLED", True)
+        vec = _FakeRetriever([_node("v1", 0.9)])
+        r = self._retriever(vec, _FakeRetriever([]))
+        out1 = r._retrieve(QueryBundle("同一个问题"))
+        n_after_first = len(vec.queries)
+        out2 = r._retrieve(QueryBundle("同一个问题"))
+        assert len(vec.queries) == n_after_first   # 第二次没再检索
+        assert out2 is out1                         # 命中返回同一缓存对象
+
+    def test_不同查询各自检索不串味(self, _rrf_config, monkeypatch):
+        monkeypatch.setattr(config, "QUERY_CACHE_ENABLED", True)
+        vec = _FakeRetriever([_node("v1", 0.9)])
+        r = self._retriever(vec, _FakeRetriever([]))
+        r._retrieve(QueryBundle("问题甲"))
+        n1 = len(vec.queries)
+        r._retrieve(QueryBundle("问题乙"))
+        assert len(vec.queries) > n1
+
+    def test_检索config指纹变化时缓存失效(self, _rrf_config, monkeypatch):
+        monkeypatch.setattr(config, "QUERY_CACHE_ENABLED", True)
+        vec = _FakeRetriever([_node("v1", 0.9)])
+        r = self._retriever(vec, _FakeRetriever([]))
+        r._retrieve(QueryBundle("同一个问题"))
+        n1 = len(vec.queries)
+        monkeypatch.setattr(config, "FINAL_TOP_K", 3)   # 影响检索结果的参数变了
+        r._retrieve(QueryBundle("同一个问题"))
+        assert len(vec.queries) > n1                     # 指纹变 → miss → 重跑
+
+    def test_LRU超容量淘汰最久未用(self, _rrf_config, monkeypatch):
+        monkeypatch.setattr(config, "QUERY_CACHE_ENABLED", True)
+        monkeypatch.setattr(config, "QUERY_CACHE_MAX_SIZE", 2)
+        vec = _FakeRetriever([_node("v1", 0.9)])
+        r = self._retriever(vec, _FakeRetriever([]))
+        for q in ("q1", "q2", "q3"):     # 超过容量 2 → q1 被淘汰
+            r._retrieve(QueryBundle(q))
+        assert len(r._query_cache) == 2
+        n_before = len(vec.queries)
+        r._retrieve(QueryBundle("q1"))    # q1 已淘汰 → 重新检索
+        assert len(vec.queries) > n_before
+
+
 # ---------- 子查询并行检索 ----------
 
 class _FakeDecomposer:

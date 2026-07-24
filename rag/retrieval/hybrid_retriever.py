@@ -12,12 +12,14 @@
 """
 
 import logging
+import threading
+from collections import OrderedDict
 
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.retrievers.bm25 import BM25Retriever
 
-from rag import config
+from rag import config, corpus
 from rag.retrieval.query_rewriter import QueryRewriter
 from rag.retrieval.reranker import Reranker
 from rag.utils.concurrency import run_parallel_captured
@@ -53,12 +55,55 @@ class HybridRetriever(BaseRetriever):
         self._query_rewriter = query_rewriter
         self._summary_meta_map = summary_meta_map or {}
         self._decomposer = decomposer
+        # 查询级缓存（P2-4，默认关）：语料 slug 在引擎构建期绑定，与 CLAUDE.md
+        # 「查询期语料状态在构建时绑定」的并存契约一致；键仍带 slug 以防将来共享缓存跨书串味。
+        self._corpus_slug = corpus.get_active_slug()
+        self._query_cache: OrderedDict = OrderedDict()
+        self._cache_lock = threading.Lock()
 
     @staticmethod
     def _log(msg: str):
         logger.info(msg)
 
+    @staticmethod
+    def _config_fingerprint() -> tuple:
+        """影响【检索结果】的 config 快照 —— 任一项变化都应使旧缓存失效。
+
+        只含检索管线相关项（改写/分解/重排开关、召回量、RRF、过滤阈值）；
+        图谱增强、回答合成在 HybridRetriever 之外，与检索结果无关，不入指纹。
+        """
+        return (
+            config.REWRITE_ENABLED, config.DECOMPOSE_ENABLED, config.RERANK_ENABLED,
+            config.RETRIEVAL_TOP_K, config.RERANK_CANDIDATE_POOL_SIZE, config.FINAL_TOP_K,
+            config.RRF_K, config.SUMMARY_REDUNDANCY_THRESHOLD, config.GAP_THRESHOLD,
+            config.MIN_CANDIDATES, config.MAX_CANDIDATES,
+            config.VECTOR_MIN_SCORE, config.BM25_MIN_SCORE,
+        )
+
     def _retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
+        # ---- 查询级缓存（可选，默认关）：命中则跳过整条检索管线 ----
+        if not config.QUERY_CACHE_ENABLED:
+            return self._retrieve_pipeline(query_bundle)
+
+        key = (self._corpus_slug, query_bundle.query_str, self._config_fingerprint())
+        with self._cache_lock:
+            hit = self._query_cache.get(key)
+            if hit is not None:
+                self._query_cache.move_to_end(key)
+        if hit is not None:
+            self._log("步骤 3.0：查询级缓存命中 — 跳过检索管线（改写/三路/RRF/重排）")
+            return hit
+
+        result = self._retrieve_pipeline(query_bundle)
+        with self._cache_lock:
+            self._query_cache[key] = result
+            self._query_cache.move_to_end(key)
+            while len(self._query_cache) > config.QUERY_CACHE_MAX_SIZE:
+                self._query_cache.popitem(last=False)  # 淘汰最久未用
+        return result
+
+    def _retrieve_pipeline(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
+        """检索管线本体（分解 → 单查询完整管线），缓存层之下。"""
         original_query = query_bundle.query_str
 
         # ---- 步骤 3.0：查询分解 ----
@@ -82,24 +127,36 @@ class HybridRetriever(BaseRetriever):
             nl_query = hyde_passage = kw_string = query
             self._log("步骤 3.1：查询重写 — 未启用")
 
-        # ---- 步骤 3.2：分路检索 ----
-        # 路径 A：NL改写 → 向量检索
-        vec_nl = self._vector_retriever.retrieve(QueryBundle(nl_query))
-        # 路径 B：HyDE → 向量检索
-        vec_hyde = self._vector_retriever.retrieve(QueryBundle(hyde_passage))
-        # 路径 C：关键词 → BM25 检索。
-        # 送检前统一过 jieba 分词：BM25 语料是 jieba 分词后的空格串，
-        # 改写禁用/关键词路降级时 kw_string 是原始整句中文，不分词则得分全 0；
-        # LLM 输出的关键词串再过一遍 jieba 也能把词粒度对齐到语料 token。
-        bm25_kw = self._bm25_retriever.retrieve(QueryBundle(tokenize_for_bm25(kw_string)))
+        # ---- 步骤 3.2：分路检索（三路并发） ----
+        # 两路向量检索各含一次公网 embedding 往返、彼此独立，与本地 BM25 三路并发；
+        # 日志顺序仍由 run_parallel_captured 按提交顺序回放保序。
+        def _route_vec_nl():
+            # 路径 A：NL改写 → 向量检索
+            return self._vector_retriever.retrieve(QueryBundle(nl_query))
 
-        # BM25 索引文本是分词后的，检索后恢复原始文本。
-        # 注意：docstore 中的节点是共享对象（Streamlit 下跨会话复用），
-        # 必须用副本替换而非就地改写。
-        for n in bm25_kw:
-            orig = n.metadata.get("original_text")
-            if orig and n.node.text != orig:
-                n.node = n.node.model_copy(update={"text": orig})
+        def _route_vec_hyde():
+            # 路径 B：HyDE → 向量检索
+            return self._vector_retriever.retrieve(QueryBundle(hyde_passage))
+
+        def _route_bm25():
+            # 路径 C：关键词 → BM25 检索。
+            # 送检前统一过 jieba 分词：BM25 语料是 jieba 分词后的空格串，
+            # 改写禁用/关键词路降级时 kw_string 是原始整句中文，不分词则得分全 0；
+            # LLM 输出的关键词串再过一遍 jieba 也能把词粒度对齐到语料 token。
+            nodes = self._bm25_retriever.retrieve(QueryBundle(tokenize_for_bm25(kw_string)))
+            # BM25 索引文本是分词后的，检索后恢复原始文本。
+            # 注意：docstore 中的节点是共享对象（Streamlit 下跨会话复用），
+            # 必须用副本替换而非就地改写。
+            for n in nodes:
+                orig = n.metadata.get("original_text")
+                if orig and n.node.text != orig:
+                    n.node = n.node.model_copy(update={"text": orig})
+            return nodes
+
+        vec_nl, vec_hyde, bm25_kw = run_parallel_captured(
+            [_route_vec_nl, _route_vec_hyde, _route_bm25],
+            max_workers=config.RETRIEVAL_ROUTE_MAX_CONCURRENCY,
+        )
 
         self._log(
             f"步骤 3.2：三路检索 — 向量(NL) {len(vec_nl)} 条, "

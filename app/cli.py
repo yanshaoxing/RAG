@@ -5,6 +5,7 @@ CLI 入口 —— 完整的 RAG 检索问答流程。
   python -m app.cli "你的问题"              # 单次查询（默认语料）
   python -m app.cli --corpus <slug> "问题"  # 指定语料（书）查询
   python -m app.cli --list                  # 列出全部可用语料
+  python -m app.cli --rebuild vector        # 删除某阶段及其下游产物（预览；加 --yes 真删）
   python -m app.cli                         # 交互模式：索引加载一次，循环提问（exit/quit/空行 退出）
 
 流程：
@@ -17,6 +18,7 @@ CLI 入口 —— 完整的 RAG 检索问答流程。
 """
 
 import argparse
+import os
 import sys
 
 from rag import corpus
@@ -125,6 +127,45 @@ def interactive_loop(query_engine) -> None:
     print_step("已退出")
 
 
+def run_rebuild(stage_key: str, corpus_slug: str | None, apply: bool) -> int:
+    """删除指定阶段及其下游依赖闭包的产物目录（默认仅预览，--yes 才真删）。
+
+    阶段路径随激活语料变化，故先绑定目标语料再解析路径。删除后由下次查询触发重建。
+    返回进程退出码。
+    """
+    from rag.indexing import staged_indexer
+
+    slug = corpus_slug or corpus.get_active_slug()
+    try:
+        # --rebuild 是构建期操作，需真正切换激活语料（config 动态路径随之指向该书）
+        profile = corpus.set_active_corpus(slug)
+    except (FileNotFoundError, ValueError) as e:
+        available = "、".join(p.slug for p in corpus.list_corpora()) or "（无）"
+        print(f"{e}\n可用语料：{available}", file=sys.stderr)
+        return 1
+
+    try:
+        stages = staged_indexer.plan_rebuild(stage_key)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 1
+
+    print(f"语料《{profile.title}》（{slug}）：重建阶段「{stage_key}」将删除以下阶段产物"
+          f"（含下游依赖闭包）：")
+    for st in stages:
+        tag = "" if os.path.exists(st.path) else "  [目录不存在，跳过]"
+        print(f"  - {st.name}（{st.key}）: {st.path}{tag}")
+
+    if not apply:
+        print("\n以上仅为预览。确认无误后加 --yes 真正删除，"
+              f"随后运行 `python -m app.cli -c {slug} \"<问题>\"` 触发重建。")
+        return 0
+
+    staged_indexer.rebuild_stages(stage_key, apply=True)
+    print(f"\n已删除。下次运行 `python -m app.cli -c {slug} \"<问题>\"` 将自动重建这些阶段。")
+    return 0
+
+
 # ======================== 主入口 ========================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="python -m app.cli", description="RAG 检索问答 CLI")
@@ -132,7 +173,14 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--corpus", default=None, metavar="SLUG",
                         help="语料（书）slug，默认取 RAG_CORPUS / 配置默认语料")
     parser.add_argument("--list", action="store_true", help="列出全部可用语料后退出")
+    parser.add_argument("--rebuild", metavar="STAGE",
+                        choices=["chunks", "summary", "bm25", "vector", "graph"],
+                        help="删除该阶段及其下游阶段的产物目录（预览；配合 --yes 真删），下次运行时重建")
+    parser.add_argument("--yes", action="store_true", help="配合 --rebuild：确认真正删除")
     args = parser.parse_args()
+
+    if args.rebuild:
+        raise SystemExit(run_rebuild(args.rebuild, args.corpus, args.yes))
 
     if args.list:
         profiles = corpus.list_corpora()
