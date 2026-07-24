@@ -100,15 +100,23 @@ def __getattr__(name: str) -> str:
 # ============================================================
 # 公网（阿里云）端点 —— provider="aliyun" 时使用
 # ============================================================
-# chat（OpenAI 兼容）：主模型 + 图谱校验模型共用同一端点/key。
-# 注意：不能用 dashscope-us —— 该端点有内容审核（data_inspection_failed），
-# 小说文本会被 400 拦截；ap-southeast-1 workspace 专属部署无此审核，
-# 且与 embedding 共用同一 workspace key。
-ALIYUN_CHAT_BASE_URL = "https://ws-hnkcnqxceqyt3qrt.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+# 2026-07-23 起 chat / embedding / rerank 全部在同一个 cn-beijing workspace，
+# 共用一把 key（三个 RAG_PUBLIC_*_API_KEY 变量保留，便于日后按角色拆分）。
+# 该 workspace 专属部署无内容审核，小说正文实测正常（dashscope-us 公共端点
+# 有内容审核会 400 拦截，勿改回）。当前模型与单价见项目根目录 LLM.txt。
+ALIYUN_CHAT_BASE_URL = "https://ws-prbh7fipy7z0uzpu.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 ALIYUN_CHAT_API_KEY = os.environ.get("RAG_PUBLIC_CHAT_API_KEY", "")
-ALIYUN_MAIN_MODEL = "qwen3.6-flash"        # 回答/改写/摘要/图谱抽取
-ALIYUN_VALIDATE_MODEL = "qwen3.5-flash"    # 图谱三元组校验（与抽取模型不同，交叉校验）
+ALIYUN_MAIN_MODEL = "qwen3.5-flash"        # 回答/改写/摘要/图谱抽取
+ALIYUN_VALIDATE_MODEL = "qwen-flash"       # 图谱三元组校验（与抽取模型不同，交叉校验）
 ALIYUN_CHAT_TIMEOUT = 120.0
+
+# 思考（reasoning）开关 —— 对成本与延迟是数量级影响。
+# 实测 qwen3.5-flash 同一条摘要请求：默认思考 = 5019 输出 token（其中 4987 是
+# reasoning，占 99%）/ 45.7s；enable_thinking=False = 24 token / 0.7s，
+# 概括质量无可见差异。构建期（摘要树数百次、图谱上千次调用）必须关闭，
+# 否则输出计费与耗时都放大两个数量级。
+# 注意：reasoning 不进 message.content，DavyLLM 的 <think> 剥离看不到它，但照样计费。
+ALIYUN_ENABLE_THINKING = _env_bool("RAG_ALIYUN_ENABLE_THINKING", False)
 
 # ============================================================
 # Embedding 模型
@@ -123,13 +131,18 @@ EMBED_OLLAMA_BASE_URL = os.environ.get("RAG_EMBED_OLLAMA_BASE_URL", "http://10.2
 EMBED_BATCH_SIZE = 512
 
 # --- 阿里云 ---
-ALIYUN_EMBED_BASE_URL = "https://ws-hnkcnqxceqyt3qrt.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
+ALIYUN_EMBED_BASE_URL = "https://ws-prbh7fipy7z0uzpu.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
 ALIYUN_EMBED_API_KEY = os.environ.get("RAG_PUBLIC_EMBED_API_KEY", "")
-ALIYUN_EMBED_MODEL = "text-embedding-v4"   # Qwen3 系嵌入（workspace 上无 qwen3.7-text-embedding）
+ALIYUN_EMBED_MODEL = "qwen3.7-text-embedding"   # 1024 维（cn-beijing workspace 上可用）
 ALIYUN_EMBED_BATCH_SIZE = 10               # DashScope 兼容模式单次请求最多 10 条文本
 
 # FAISS 向量维度随 embedding provider 切换（两模型维度不同，切换后必须重建语料的 data/vector/）
 EMBED_VECTOR_DIM = 1024 if EMBED_PROVIDER == "aliyun" else 4096
+
+# 当前生效的嵌入模型名 —— 写入向量阶段完成标记，加载时比对。
+# ⚠️ 维度相同 ≠ 可复用：换模型后向量空间不同，旧索引与新查询向量的相似度无意义，
+# 必须重建 data/vector/。此处的比对就是为了让这种情况显式报错而非静默给出垃圾结果。
+ACTIVE_EMBED_MODEL_NAME = ALIYUN_EMBED_MODEL if EMBED_PROVIDER == "aliyun" else EMBED_MODEL_NAME
 EMBED_TIMEOUT = 300.0              # embedding 请求超时（秒），独立于回答 LLM 超时
 
 # embedding 断点续传：分段计算并落盘，向量阶段中断后续跑只补缺失段。

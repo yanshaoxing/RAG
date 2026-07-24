@@ -24,7 +24,7 @@ from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.faiss import FaissVectorStore
 
 from rag import config
-from rag.utils.files import atomic_write_json, mark_stage_done, stage_complete
+from rag.utils.files import atomic_write_json, mark_stage_done, stage_complete, read_stage_info
 from rag.utils.text import tokenize_for_bm25
 from rag.ingestion.preprocessor import load_documents, create_chunking_pipeline, CHUNK_EXCLUDED_META_KEYS
 from rag.indexing.embedding_checkpoint import embed_nodes_with_checkpoint, clear_checkpoint
@@ -283,7 +283,10 @@ def _stage_vector(all_nodes: list) -> VectorStoreIndex:
     embed_nodes_with_checkpoint(all_nodes, Settings.embed_model, label="向量索引")
     index = VectorStoreIndex(all_nodes, storage_context=storage_context)
     index.storage_context.persist(persist_dir=config.PERSIST_DIR)
-    _mark_stage_done(config.PERSIST_DIR, num_nodes=len(all_nodes))
+    # 记下建索引所用的嵌入模型，加载时比对（换模型后旧索引不可复用，见 _load_vector）
+    _mark_stage_done(config.PERSIST_DIR, num_nodes=len(all_nodes),
+                     embed_model=config.ACTIVE_EMBED_MODEL_NAME,
+                     vector_dim=config.EMBED_VECTOR_DIM)
     clear_checkpoint()  # 向量索引已持久化，embedding 缓存不再需要
 
     t_elapsed = (datetime.now() - t_start).total_seconds()
@@ -292,9 +295,28 @@ def _stage_vector(all_nodes: list) -> VectorStoreIndex:
     return index
 
 
+def _check_embed_model_match() -> None:
+    """比对向量索引的构建模型与当前嵌入模型，不一致则显式报错。
+
+    ⚠️ 维度相同不代表可复用：换嵌入模型后向量空间不同，旧索引与新查询向量算出的
+    相似度毫无意义，且不会报任何错 —— 静默给出垃圾检索结果。此处让它显式失败。
+    （旧版本产物没有 embed_model 字段，此时跳过检查以兼容。）
+    """
+    info = read_stage_info(config.PERSIST_DIR)
+    built_with = info.get("embed_model")
+    if built_with and built_with != config.ACTIVE_EMBED_MODEL_NAME:
+        raise RuntimeError(
+            f"向量索引由嵌入模型 {built_with!r} 构建，当前配置为 "
+            f"{config.ACTIVE_EMBED_MODEL_NAME!r}。两者向量空间不同，索引不可复用"
+            f"（即使维度相同）。请删除 {config.PERSIST_DIR} 后重新运行以重建向量阶段。"
+        )
+
+
 def _load_vector() -> VectorStoreIndex:
     """从 vector/ 加载向量索引（FAISS HNSW）。"""
     t_start = datetime.now()
+
+    _check_embed_model_match()
 
     faiss_index_path = os.path.join(config.PERSIST_DIR, "default__vector_store.json")
     if not os.path.exists(faiss_index_path):

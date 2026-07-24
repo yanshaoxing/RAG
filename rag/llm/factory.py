@@ -133,6 +133,8 @@ class DavyLLM(CustomLLM):
     api_key: str = config.DAVY_API_KEY
     temperature: float = config.DAVY_TEMPERATURE
     request_timeout: float = config.DAVY_TIMEOUT
+    # None = 不传该参数（Davy 内网端点不认识它）；True/False = 显式开关思考
+    enable_thinking: Optional[bool] = None
 
     def __init__(
         self,
@@ -142,9 +144,12 @@ class DavyLLM(CustomLLM):
         api_key: Optional[str] = None,
         temperature: Optional[float] = None,
         request_timeout: Optional[float] = None,
+        enable_thinking: Optional[bool] = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
+        if enable_thinking is not None:
+            self.enable_thinking = enable_thinking
         if model_name is not None:
             self.model_name = model_name
         if base_url is not None:
@@ -191,7 +196,13 @@ class DavyLLM(CustomLLM):
             msgs.append({"role": role, "content": msg.content})
 
         temperature = kwargs.get("temperature", self.temperature)
-        return {"model": self.model_name, "messages": msgs, "stream": False, "temperature": temperature}
+        body = {"model": self.model_name, "messages": msgs, "stream": False,
+                "temperature": temperature}
+        # 思考开关只在显式配置时下发：Qwen3 系默认思考，reasoning token 可占输出 99%
+        # （见 config.ALIYUN_ENABLE_THINKING）；Davy 内网端点不认识该参数，故默认不传
+        if self.enable_thinking is not None:
+            body["enable_thinking"] = self.enable_thinking
+        return body
 
     # 可重试的 HTTP 状态码：限流 + 服务端瞬时错误
     _RETRYABLE_STATUS = (429, 500, 502, 503, 504)
@@ -376,6 +387,7 @@ def _create_aliyun_llm(model_name: Optional[str] = None,
         cert_path="",  # 公网端点，系统 CA
         temperature=temperature,
         request_timeout=config.ALIYUN_CHAT_TIMEOUT,
+        enable_thinking=config.ALIYUN_ENABLE_THINKING,
     )
 
 

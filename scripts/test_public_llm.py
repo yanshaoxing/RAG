@@ -1,15 +1,20 @@
 # -*- coding: utf-8 -*-
-"""公网 LLM（阿里云）连通性测试脚本。
+"""公网 LLM（阿里云）连通性测试脚本 —— 与项目根目录 LLM.txt 保持一致。
 
-测试 LLM.txt 中记录的 4 个端点（均用最短的测试数据）：
-  1. 主模型         qwen3.6-flash        （OpenAI 兼容 chat，dashscope-us）
-  2. 图谱校验模型   qwen3.5-flash        （OpenAI 兼容 chat，dashscope-us）
-  3. 嵌入模型       qwen3.7-text-embedding（OpenAI 兼容 embeddings，ap-southeast-1 workspace）
-  4. 重排模型       qwen3-rerank         （MaaS rerank 接口，cn-beijing workspace，直接 POST）
+测试 LLM.txt 中记录的 4 个模型（均用最短的测试数据），全部在同一个
+cn-beijing workspace，共用一把 key：
+  1. 主模型         qwen3.5-flash          （OpenAI 兼容 chat，回答/改写/摘要/图谱抽取）
+  2. 图谱校验模型   qwen-flash             （OpenAI 兼容 chat，异模型交叉校验）
+  3. 嵌入模型       qwen3.7-text-embedding （OpenAI 兼容 embeddings，1024 维）
+  4. 重排模型       qwen3-rerank           （MaaS rerank 接口，直接 POST）
 
-三个端点使用不同的 API Key，从环境变量（或项目根目录 .env）读取：
+另含两项专项检查：
+  - 嵌入维度是否仍与 config.EMBED_VECTOR_DIM 一致（不一致必须重建向量索引）
+  - 小说正文是否被内容审核拦截（dashscope-us 公共端点会 400，本 workspace 不会）
+
+API Key 从环境变量（或项目根目录 .env）读取，不在代码中硬编码：
   RAG_PUBLIC_CHAT_API_KEY / RAG_PUBLIC_EMBED_API_KEY / RAG_PUBLIC_RERANK_API_KEY
-不在代码中硬编码。用法：
+用法：
     .venv/bin/python scripts/test_public_llm.py
 """
 
@@ -22,22 +27,30 @@ from openai import OpenAI
 
 # ---------------------------------------------------------------- 配置
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, _ROOT)
 
-# dashscope-us 有内容审核（小说文本被 400 拦截），chat 改用 ap-southeast-1
-# workspace（与 embedding 同端点同 key，无审核）
-CHAT_BASE_URL = "https://ws-hnkcnqxceqyt3qrt.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
-CHAT_MAIN_MODEL = "qwen3.6-flash"
-CHAT_VALIDATE_MODEL = "qwen3.5-flash"
+# 端点与模型一律取自 rag.config，避免脚本与项目实际配置漂移 ——
+# 换模型时只需改 config.py 与 LLM.txt 两处，本脚本自动跟随
+from rag import config  # noqa: E402
 
-EMBED_BASE_URL = "https://ws-hnkcnqxceqyt3qrt.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1"
-# 注意：LLM.txt 写的 qwen3.7-text-embedding 在该 workspace 不存在（404），
-# 实际可用的嵌入模型为 text-embedding-v4 / text-embedding-v3（v4 即 Qwen3 系）。
-EMBED_MODEL = "text-embedding-v4"
+CHAT_BASE_URL = config.ALIYUN_CHAT_BASE_URL
+CHAT_MAIN_MODEL = config.ALIYUN_MAIN_MODEL
+CHAT_VALIDATE_MODEL = config.ALIYUN_VALIDATE_MODEL
 
-RERANK_URL = "https://ws-prbh7fipy7z0uzpu.cn-beijing.maas.aliyuncs.com/compatible-api/v1/reranks"
-RERANK_MODEL = "qwen3-rerank"
+EMBED_BASE_URL = config.ALIYUN_EMBED_BASE_URL
+EMBED_MODEL = config.ALIYUN_EMBED_MODEL
+EXPECTED_DIM = config.EMBED_VECTOR_DIM
+
+RERANK_URL = config.ALIYUN_RERANK_URL
+RERANK_MODEL = config.ALIYUN_RERANK_MODEL
 
 TIMEOUT = 60
+
+# 小说正文片段：验证该端点是否带内容审核（dashscope-us 会 400 data_inspection_failed）
+NOVEL_SNIPPET = (
+    "丁元英从柏林回到北京，私募基金已经解散。他坐在古城的出租屋里，点上一支烟，"
+    "想着王庙村的扶贫计划究竟是杀富济贫还是文化属性的必然。"
+)
 
 
 def _load_env_file() -> dict[str, str]:
@@ -65,14 +78,36 @@ def _load_api_key(name: str, env_file: dict[str, str]) -> str:
 
 
 # ---------------------------------------------------------------- 各项测试
+def _extra_body() -> dict:
+    """与 DavyLLM 一致的思考开关（reasoning token 可占输出 99%，见 config）。"""
+    return {"enable_thinking": config.ALIYUN_ENABLE_THINKING}
+
+
 def test_chat(client: OpenAI, model: str) -> bool:
     resp = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content": "回复“连通”两个字即可。"}],
         max_tokens=16,
+        extra_body=_extra_body(),
     )
     text = (resp.choices[0].message.content or "").strip()
+    details = resp.usage.completion_tokens_details
+    reasoning = getattr(details, "reasoning_tokens", None) if details else None
     print(f"    模型返回: {text[:50]!r}")
+    print(f"    输出 token={resp.usage.completion_tokens}，其中 reasoning={reasoning}"
+          f"（enable_thinking={config.ALIYUN_ENABLE_THINKING}）")
+    return bool(text)
+
+
+def test_novel_inspection(client: OpenAI) -> bool:
+    """小说正文是否被内容审核拦截（本项目语料是小说，这条必须通过）。"""
+    resp = client.chat.completions.create(
+        model=CHAT_MAIN_MODEL,
+        messages=[{"role": "user", "content": f"用一句话概括：\n{NOVEL_SNIPPET}"}],
+        extra_body=_extra_body(),
+    )
+    text = (resp.choices[0].message.content or "").strip()
+    print(f"    概括结果: {text[:60]!r}")
     return bool(text)
 
 
@@ -81,7 +116,11 @@ def test_embedding(api_key: str) -> bool:
     resp = client.embeddings.create(model=EMBED_MODEL, input="连通性测试")
     vec = resp.data[0].embedding
     print(f"    向量维度: {len(vec)}，前 3 维: {[round(v, 4) for v in vec[:3]]}")
-    return len(vec) > 0
+    if len(vec) != EXPECTED_DIM:
+        print(f"    ❌ 维度与 config.EMBED_VECTOR_DIM({EXPECTED_DIM}) 不符 —— "
+              f"必须同步 config 并重建各语料的 data/vector/")
+        return False
+    return True
 
 
 def test_rerank(api_key: str) -> bool:
@@ -122,8 +161,9 @@ def main() -> None:
     tests = [
         (f"主模型 chat（{CHAT_MAIN_MODEL}）", lambda: test_chat(chat_client, CHAT_MAIN_MODEL)),
         (f"图谱校验 chat（{CHAT_VALIDATE_MODEL}）", lambda: test_chat(chat_client, CHAT_VALIDATE_MODEL)),
-        (f"嵌入（{EMBED_MODEL}）", lambda: test_embedding(embed_key)),
+        (f"嵌入（{EMBED_MODEL}，应为 {EXPECTED_DIM} 维）", lambda: test_embedding(embed_key)),
         (f"重排（{RERANK_MODEL}）", lambda: test_rerank(rerank_key)),
+        ("小说正文内容审核", lambda: test_novel_inspection(chat_client)),
     ]
 
     results = []

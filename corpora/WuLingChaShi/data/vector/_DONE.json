@@ -1,4 +1,6 @@
 {
-  "completed_at": "2026-07-23T10:05:31.856277",
-  "num_nodes": 10
+  "completed_at": "2026-07-23T23:19:34.353036",
+  "num_nodes": 10,
+  "embed_model": "qwen3.7-text-embedding",
+  "vector_dim": 1024
 }

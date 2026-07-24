@@ -168,3 +168,33 @@ class TestStreamRetry:
         with pytest.raises(ConnectionError):
             list(llm.stream_chat([]))
         assert b1.closed and b2.closed
+
+
+class TestEnableThinking:
+    """思考开关 —— Qwen3 系默认思考，reasoning token 可占计费输出的 99%。
+
+    reasoning 不进 message.content，ThinkStreamFilter 看不到它，但照样按输出价计费；
+    Davy 内网端点不认识该参数，故未显式配置时绝不能下发。
+    """
+
+    def test_未配置时不下发该参数(self):
+        body = DavyLLM()._build_request_body([])
+        assert "enable_thinking" not in body
+
+    @pytest.mark.parametrize("value", [True, False])
+    def test_显式配置时按原值下发(self, value):
+        body = DavyLLM(enable_thinking=value)._build_request_body([])
+        assert body["enable_thinking"] is value
+
+    def test_流式请求同样带上该参数(self, monkeypatch):
+        # 构建期与回答期共用同一份 body，流式路径不能漏掉思考开关
+        captured = {}
+
+        def _fake_post(self, body, stream=False):
+            captured.update(body)
+            return _FakeSSEResponse(["答案"])
+
+        monkeypatch.setattr(DavyLLM, "_post_with_retry", _fake_post)
+        list(DavyLLM(enable_thinking=False).stream_chat([]))
+        assert captured["enable_thinking"] is False
+        assert captured["stream"] is True

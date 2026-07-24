@@ -18,15 +18,16 @@
 
 | 角色 | 模型 | 端点 | API Key 环境变量 |
 |---|---|---|---|
-| 主模型（回答 / 改写 / 摘要 / 图谱抽取） | `qwen3.6-flash` | `ws-…ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1` | `RAG_PUBLIC_CHAT_API_KEY` |
-| 图谱三元组校验（异模型交叉校验） | `qwen3.5-flash` | 同上 | `RAG_PUBLIC_CHAT_API_KEY` |
-| 嵌入（**1024 维**，FAISS 维度随之切换） | `text-embedding-v4` | 同上 | `RAG_PUBLIC_EMBED_API_KEY` |
+| 主模型（回答 / 改写 / 摘要 / 图谱抽取） | `qwen3.5-flash` | `ws-…cn-beijing.maas.aliyuncs.com/compatible-mode/v1` | `RAG_PUBLIC_CHAT_API_KEY` |
+| 图谱三元组校验（异模型交叉校验） | `qwen-flash` | 同上 | `RAG_PUBLIC_CHAT_API_KEY` |
+| 嵌入（**1024 维**，FAISS 维度随之切换） | `qwen3.7-text-embedding` | 同上 | `RAG_PUBLIC_EMBED_API_KEY` |
 | 重排序 | `qwen3-rerank` | `ws-…cn-beijing.maas.aliyuncs.com/compatible-api/v1/reranks` | `RAG_PUBLIC_RERANK_API_KEY` |
 
 - 公网 key **不入 git**：写在项目根目录 `.env`（已 gitignore）或直接设环境变量；`rag/config.py` 启动时自动加载 `.env`。
-- **chat 不能走 `dashscope-us` 公共端点**：该端点带内容审核（`data_inspection_failed`），小说文本会被 400 拦截；ap-southeast-1 workspace 专属部署无此审核，chat 与 embedding 共用同一 workspace key。
+- **chat 不能走 `dashscope-us` 公共端点**：该端点带内容审核（`data_inspection_failed`），小说文本会被 400 拦截；当前 cn-beijing workspace 专属部署无此审核（已实测小说正文），chat / embedding / rerank 共用同一把 workspace key。
+- **`ALIYUN_ENABLE_THINKING` 默认 `False`**：Qwen3 系默认开启思考，实测同一条摘要请求「思考开 = 5019 输出 token（99% 是 reasoning）/ 45.7 秒」vs「思考关 = 24 token / 0.7 秒」，概括质量无可见差异。reasoning 不进 `message.content`，`<think>` 剥离看不到它但照样计费——构建期数百上千次调用必须关闭。
 - 每个角色的 provider 可独立切回内网：`ANSWER_PROVIDER` / `REWRITE_PROVIDER` / `SUMMARY_LLM_PROVIDER` / `GRAPH_VALIDATE_LLM_PROVIDER` / `EMBED_PROVIDER` / `RERANK_PROVIDER`（`"ollama"` / `"davy"` / `"vllm"` 为原内网配置，参数仍保留）。
-- **注意维度差异**：公网 `text-embedding-v4` 为 1024 维，内网 `qwen3-embedding:8b` 为 4096 维——切换 `EMBED_PROVIDER` 后必须删除语料的 `data/vector/` 重建向量索引（`EMBED_VECTOR_DIM` 随 provider 自动切换）。
+- **换嵌入模型必须重建向量索引**：公网 `qwen3.7-text-embedding` 为 1024 维，内网 `qwen3-embedding:8b` 为 4096 维。⚠️ 维度相同也不代表可复用——不同模型的向量空间不同，旧索引配新查询向量的相似度毫无意义。向量阶段的完成标记会记录 `embed_model`，加载时比对不一致直接报错，删除语料的 `data/vector/` 重建即可。
 - 连通性自检：`.venv/bin/python scripts/test_public_llm.py`（四个端点各发一条最小请求）。
 
 ## 整体架构
@@ -55,12 +56,12 @@ flowchart TD
     ST --> MIX["chunk + 全部摘要节点混合为统一语料<br/>摘要 metadata 排除键：original_text（≤8192 字）、<br/>summary_child_ids 等不进 embedding 输入 / LLM 上下文<br/>（否则摘要向量被原文噪声主导、QA prompt 注入 ~8KB 冗余）"]
 
     MIX --> BM["阶段③ BM25 索引 → data/bm25/<br/>section+正文拼接 → jieba 分词后入索引<br/>原文存 metadata.original_text 供检索后恢复<br/>（该键同样排除出 LLM 上下文，防正文翻倍）"]
-    MIX --> VEC["阶段④ 向量索引 → data/vector/<br/>text-embedding-v4（1024 维，阿里云；内网可切 qwen3-embedding:8b 4096 维）<br/>分段 embedding：每 256 节点一段落盘 data/embed_cache/<br/>中断续跑只补缺失段（语料+模型指纹校验，成功后清缓存）<br/>FAISS HNSW（M=16, efConstruction=200, efSearch=64）"]
+    MIX --> VEC["阶段④ 向量索引 → data/vector/<br/>qwen3.7-text-embedding（1024 维，阿里云；内网可切 qwen3-embedding:8b 4096 维）<br/>分段 embedding：每 256 节点一段落盘 data/embed_cache/<br/>中断续跑只补缺失段（语料+模型指纹校验，成功后清缓存）<br/>FAISS HNSW（M=16, efConstruction=200, efSearch=64）"]
 
     SEC -."按章节/小节直接抽取（独立于检索分块）".-> GB
     subgraph GB["阶段⑤ 知识图谱：有界流水线 → data/graph_db/"]
         direction TB
-        W["⚡ worker 线程 ×2（并发做抽取 + 校验）<br/>LLM 抽取实体/关系（召回优先）<br/>→ rules.json 规则过滤<br/>→ 异模型交叉校验（qwen3.5-flash，可纠正三元组，<br/>当前阈值 2.0 = 全量校验）"]
+        W["⚡ worker 线程 ×2（并发做抽取 + 校验）<br/>LLM 抽取实体/关系（召回优先）<br/>→ rules.json 规则过滤<br/>→ 异模型交叉校验（qwen-flash，可纠正三元组，<br/>当前阈值 2.0 = 全量校验）"]
         W -->|"结果按提交顺序交回主线程"| MT["主线程串行记账（免锁、产物确定）<br/>别名归一化（确定性快速规则优先于 LLM）<br/>→ 描述增量合并（chunk 内按唯一实体去重，<br/>每实体每 chunk 最多 1 次 LLM 调用）<br/>→ SQLite 缓存 → Kuzu 入库"]
         MT -.-> CACHE["断点续传：per-chunk 缓存于 data/graph_cache/<br/>指纹 = 实际模型名（换模型自动失效）<br/>learned 类型不进指纹（Schema 成长不破坏缓存）<br/>单 chunk 失败记录后继续，不中止全局"]
     end
@@ -235,7 +236,7 @@ flowchart TD
 │    ★19 FAISS HNSW 替代 IndexFlatIP：M=16 / efConstruction=200 / efSearch=64  │
 │    ★20 embedding 分段断点续传 embed_nodes_with_checkpoint()：                │
 │        ① 节点按 256 个/段分组（EMBED_CHECKPOINT_SEGMENT_NODES）              │
-│        ② 每段批量嵌入：text-embedding-v4，1024 维，batch=10，阿里云端点      │
+│        ② 每段批量嵌入：qwen3.7-text-embedding，1024 维，batch=10，阿里云端点      │
 │        ③ seg_XXXXX.npy 原子落盘 data/embed_cache/（独立于 vector/——该目录    │
 │           在阶段重建时会被整体删除，缓存不能放里面）                         │
 │        ④ manifest 指纹 = 节点 id 序列 + 模型名的 md5，不匹配 → 缓存整体作废  │
@@ -265,8 +266,8 @@ flowchart TD
 │  │        │                         │  │   canonicalize/merge 每实体      │  │
 │  │        ▼                         │  │   每 chunk 最多 1 次 LLM 调用    │  │
 │  │ ★23 LLM 二次校验 Validator：     │  │        │                         │  │
-│  │   异模型交叉（qwen3.6-flash      │  │        ▼                         │  │
-│  │   抽取 vs qwen3.5-flash 校验）   │  │ ★26 DescriptionMerger 合并：     │  │
+│  │   异模型交叉（qwen3.5-flash      │  │        ▼                         │  │
+│  │   抽取 vs qwen-flash 校验）     │  │ ★26 DescriptionMerger 合并：     │  │
 │  │   阈值 2.0 = 全量送检；          │  │   相同/子串关系直接跳过 LLM      │  │
 │  │   支持修正 corrected 关系；      │  │        │                         │  │
 │  │   字符串下标容错                 │  │        ▼                         │  │
@@ -475,7 +476,7 @@ flowchart TD
 │                                                                              │
 │ ★53 LLM 工厂 factory.py：answer / rewrite / summary / validate 四种角色独立  │
 │     创建（provider 可各选 aliyun/davy/ollama）；校验 LLM 刻意用与抽取不同的  │
-│     模型；embedding 按 EMBED_PROVIDER 切换（aliyun text-embedding-v4 1024 维 │
+│     模型；embedding 按 EMBED_PROVIDER 切换（aliyun qwen3.7-text-embedding 1024 维 │
 │     / 内网 Ollama qwen3-embedding:8b 4096 维，FAISS 维度随之切换）           │
 │                                                                              │
 │ ★54 并发控制 config.py：改写/子查询/摘要/图抽取并发统一 =2（Davy 端点压测    │
