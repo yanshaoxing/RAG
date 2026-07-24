@@ -13,9 +13,8 @@
 import json
 import logging
 import re
-from typing import Optional
 
-from llama_index.core.llms import ChatMessage, MessageRole, CustomLLM
+from llama_index.core.llms import ChatMessage, CustomLLM, MessageRole
 
 from rag import config, prompts
 from rag.utils.concurrency import run_parallel_captured
@@ -26,7 +25,7 @@ logger = logging.getLogger(__name__)
 class QueryRewriter:
     """三路查询重写：NL改写 + HyDE + BM25关键词扩展。"""
 
-    def __init__(self, enabled: bool = True, llm: Optional[CustomLLM] = None):
+    def __init__(self, enabled: bool = True, llm: CustomLLM | None = None):
         self._enabled = enabled
         self._llm = llm
         self._term_map: dict[str, str] = self._load_term_map()
@@ -46,7 +45,7 @@ class QueryRewriter:
     def _load_term_map() -> dict[str, str]:
         """从 terminology.json 加载术语映射，key 按长度降序排序（最长匹配优先）。"""
         try:
-            with open(config.TERM_MAP_PATH, "r", encoding="utf-8") as f:
+            with open(config.TERM_MAP_PATH, encoding="utf-8") as f:
                 raw: dict[str, str] = json.load(f)
         except (FileNotFoundError, json.JSONDecodeError) as e:
             logger.warning("加载术语映射文件失败 (%s): %s，跳过术语替换",

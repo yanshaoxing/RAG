@@ -15,7 +15,7 @@ import logging
 import streamlit as st
 
 from rag import corpus
-from rag.engine.bootstrap import init_settings, build_query_engine, format_source_nodes
+from rag.engine.bootstrap import build_query_engine, format_source_nodes, init_settings
 from rag.logging_utils import capture_pipeline_logs
 from rag.metering import capture_usage, step_timer
 

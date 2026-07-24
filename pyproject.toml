@@ -1,0 +1,21 @@
+# 工程配置：pytest + ruff（批次 2 · 防回归）
+# 说明：本项目依赖仍固定在 requirements.txt（含运行期 + ruff），此文件只收编工具配置，
+# 不声明 [project]/[build-system]，以免 pip 把仓库误当作可安装包。
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+addopts = "-q"
+# tests/conftest.py 已把仓库根塞进 sys.path；这里再声明一次，裸跑 `pytest` 也稳。
+pythonpath = ["."]
+
+[tool.ruff]
+# 中文（CJK）代码库：ruff 把每个汉字按 1 宽计数，line-length 120 对应视觉约 200 列已足够严。
+line-length = 120
+target-version = "py312"
+# data/ 是索引产物、.venv 是虚拟环境，均不参与 lint。
+extend-exclude = ["corpora/*/data", ".venv"]
+
+[tool.ruff.lint]
+# 不激进：E（pycodestyle 错误）/F（pyflakes）/I（isort 导入排序）/UP（pyupgrade 现代化）。
+select = ["E", "F", "I", "UP"]

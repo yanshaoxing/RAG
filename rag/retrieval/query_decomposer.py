@@ -9,9 +9,8 @@
 
 import logging
 import re
-from typing import Optional
 
-from llama_index.core.llms import ChatMessage, MessageRole, CustomLLM
+from llama_index.core.llms import ChatMessage, CustomLLM, MessageRole
 
 from rag import config, prompts
 
@@ -34,7 +33,7 @@ class QueryDecomposer:
 
     def __init__(
         self,
-        llm: Optional[CustomLLM] = None,
+        llm: CustomLLM | None = None,
         enabled: bool = True,
     ):
         self._llm = llm

@@ -14,22 +14,34 @@ import logging
 import os
 import shutil
 from datetime import datetime
-from typing import Optional, Tuple, List
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from llama_index.core.indices.property_graph import PropertyGraphIndex
 
 import faiss
-from llama_index.core import VectorStoreIndex, Document, Settings, StorageContext
-from llama_index.core import load_index_from_storage
+from llama_index.core import (
+    Document,
+    Settings,
+    StorageContext,
+    VectorStoreIndex,
+    load_index_from_storage,
+)
 from llama_index.core.schema import TextNode
 from llama_index.retrievers.bm25 import BM25Retriever
 from llama_index.vector_stores.faiss import FaissVectorStore
 
 from rag import config
-from rag.utils.files import atomic_write_json, mark_stage_done, stage_complete, read_stage_info
-from rag.utils.text import tokenize_for_bm25
-from rag.ingestion.preprocessor import load_documents, create_chunking_pipeline, CHUNK_EXCLUDED_META_KEYS
-from rag.indexing.embedding_checkpoint import embed_nodes_with_checkpoint, clear_checkpoint
-from rag.summarization.summary_tree import build_summary_tree, SUMMARY_EXCLUDED_META_KEYS
 from rag.graph.graph_constructor import build_graph, load_graph
+from rag.indexing.embedding_checkpoint import clear_checkpoint, embed_nodes_with_checkpoint
+from rag.ingestion.preprocessor import (
+    CHUNK_EXCLUDED_META_KEYS,
+    create_chunking_pipeline,
+    load_documents,
+)
+from rag.summarization.summary_tree import SUMMARY_EXCLUDED_META_KEYS, build_summary_tree
+from rag.utils.files import atomic_write_json, mark_stage_done, read_stage_info, stage_complete
+from rag.utils.text import tokenize_for_bm25
 
 logger = logging.getLogger(__name__)
 
@@ -144,14 +156,14 @@ def _stage_chunk() -> list:
 def _load_chunks() -> list:
     """从 chunks/ 加载分块节点。"""
     chunks_path = os.path.join(config.CHUNKS_DIR, "chunks.json")
-    with open(chunks_path, "r", encoding="utf-8") as f:
+    with open(chunks_path, encoding="utf-8") as f:
         data = json.load(f)
     nodes = _deserialize_nodes(data)
     _log(f"  已加载 {len(nodes)} 个 chunk 节点")
     return nodes
 
 
-def _stage_summary(chunk_nodes: list) -> Tuple[list, dict]:
+def _stage_summary(chunk_nodes: list) -> tuple[list, dict]:
     """阶段 2：摘要树构建 → summary_tree/"""
     print("阶段 2：构建摘要树...", flush=True)
     _log("阶段 2：构建摘要树")
@@ -176,7 +188,7 @@ def _stage_summary(chunk_nodes: list) -> Tuple[list, dict]:
     return summary_docs, summary_meta_map
 
 
-def _load_summary() -> Tuple[list, dict]:
+def _load_summary() -> tuple[list, dict]:
     """从 summary_tree/ 加载摘要节点和元数据。"""
     # 完成标记保证两个文件都存在；缺失说明产物损坏，显式报错而非静默返回空
     map_path = os.path.join(config.SUMMARY_TREE_DIR, "summary_meta_map.json")
@@ -188,11 +200,11 @@ def _load_summary() -> Tuple[list, dict]:
                 f"请删除 {config.SUMMARY_TREE_DIR} 后重新运行以重建该阶段。"
             )
 
-    with open(map_path, "r", encoding="utf-8") as f:
+    with open(map_path, encoding="utf-8") as f:
         summary_meta_map = json.load(f)
     _log(f"  已加载 {len(summary_meta_map)} 条摘要树元数据")
 
-    with open(summary_nodes_path, "r", encoding="utf-8") as f:
+    with open(summary_nodes_path, encoding="utf-8") as f:
         data = json.load(f)
     summary_docs = _deserialize_summary_docs(data)
     _log(f"  已加载 {len(summary_docs)} 个摘要节点")
@@ -343,7 +355,7 @@ def _load_vector() -> VectorStoreIndex:
 
 # ======================== 管线控制器 ========================
 
-def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict], Optional["PropertyGraphIndex"]]:
+def get_or_build_index() -> tuple[VectorStoreIndex, BM25Retriever, dict | None, Optional["PropertyGraphIndex"]]:
     """分阶段索引管线控制器。
 
     按序检查各阶段产物目录，从第一个缺失的阶段开始执行。
@@ -352,7 +364,7 @@ def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict
     返回: (向量索引, BM25 检索器, 摘要树元数据映射, 知识图谱索引或 None)
     """
     # 定义阶段列表：(阶段名, 产物目录, 是否启用)
-    stages: List[Tuple[str, str, bool]] = [
+    stages: list[tuple[str, str, bool]] = [
         ("分块",       config.CHUNKS_DIR,       True),
         ("摘要树",     config.SUMMARY_TREE_DIR, config.SUMMARY_TREE_ENABLED),
         ("BM25 索引",  config.BM25_DIR,         True),
@@ -400,11 +412,11 @@ def get_or_build_index() -> Tuple[VectorStoreIndex, BM25Retriever, Optional[dict
             _log(f"  已清理旧产物: {path}")
 
     # ---- 逐步执行各阶段 ----
-    chunk_nodes: Optional[list] = None
+    chunk_nodes: list | None = None
     summary_docs: list = []
-    summary_meta_map: Optional[dict] = None
-    bm25_retriever: Optional[BM25Retriever] = None
-    vector_index: Optional[VectorStoreIndex] = None
+    summary_meta_map: dict | None = None
+    bm25_retriever: BM25Retriever | None = None
+    vector_index: VectorStoreIndex | None = None
     graph_index = None  # Optional[PropertyGraphIndex]
 
     # 阶段 0：分块（如果 start_from <= 0 则执行，否则加载缓存；

@@ -17,7 +17,6 @@ from rag.indexing.staged_indexer import (
 from rag.ingestion.preprocessor import CHUNK_EXCLUDED_META_KEYS, HierarchicalChunker
 from rag.summarization.summary_tree import SUMMARY_EXCLUDED_META_KEYS
 
-
 _SUMMARY_ITEM = {
     "doc_id": "summary_L2_0_3",
     "text": "这是摘要正文",

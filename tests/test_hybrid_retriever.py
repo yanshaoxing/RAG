@@ -1,7 +1,6 @@
 """rag/retrieval/hybrid_retriever.py 单测 —— gap 过滤、摘要冗余过滤、RRF 三路融合。"""
 
 import pytest
-
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 

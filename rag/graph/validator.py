@@ -9,7 +9,7 @@
 
 import logging
 
-from rag.utils.json_parse import parse_json_obj, coerce_index_set
+from rag.utils.json_parse import coerce_index_set, parse_json_obj
 
 from .models import Relation
 

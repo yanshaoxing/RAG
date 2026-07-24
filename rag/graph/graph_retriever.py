@@ -11,7 +11,6 @@ v2 变化：支持 Schema-aware 多 Label 查询（不再是硬编码 Entity）
 """
 
 import logging
-from typing import Optional, List
 
 from llama_index.core.indices.property_graph import PropertyGraphIndex
 
@@ -26,7 +25,7 @@ class GraphRetriever:
 
     def __init__(
         self,
-        graph_index: Optional[PropertyGraphIndex] = None,
+        graph_index: PropertyGraphIndex | None = None,
         llm=None,
     ):
         self._graph_index = graph_index
@@ -66,7 +65,7 @@ class GraphRetriever:
         formatted = self._format_triples(triples)
         return formatted
 
-    def _extract_entities_from_query(self, query: str) -> List[str]:
+    def _extract_entities_from_query(self, query: str) -> list[str]:
         """使用 LLM 从查询中提取具名实体。"""
         prompt = prompts.ENTITY_EXTRACT_FROM_QUERY_PROMPT.format(query=query)
         try:
@@ -79,7 +78,7 @@ class GraphRetriever:
             logger.warning(f"查询实体提取失败: {e}")
         return []
 
-    def _search_graph(self, entities: List[str]) -> List[dict]:
+    def _search_graph(self, entities: list[str]) -> list[dict]:
         """在 Kuzu 图中搜索匹配实体的相关三元组。
 
         v2 变化：不再硬编码 Entity Label，使用通用 MATCH 匹配所有节点类型。
@@ -131,7 +130,7 @@ class GraphRetriever:
             logger.warning(f"图搜索失败: {e}")
             return []
 
-    def _format_triples(self, triples: List[dict]) -> str:
+    def _format_triples(self, triples: list[dict]) -> str:
         """将三元组列表格式化为可嵌入 Prompt 的文本。
 
         description/chunk_id 未持久化到 Kuzu（固定 schema 丢弃自定义属性），

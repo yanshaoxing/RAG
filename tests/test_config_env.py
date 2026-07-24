@@ -10,7 +10,6 @@ import pytest
 
 from rag import config
 
-
 # ---------- 纯解析语义 ----------
 
 @pytest.mark.parametrize("raw,expected", [

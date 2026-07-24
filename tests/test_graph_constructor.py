@@ -2,8 +2,6 @@
 
 import threading
 
-import pytest
-
 from rag import config
 from rag.graph.cache import GraphCache
 from rag.graph.graph_constructor import (
@@ -14,7 +12,6 @@ from rag.graph.graph_constructor import (
 from rag.graph.metrics import MetricsCollector
 from rag.graph.models import ChunkResult, Entity, Relation
 from rag.graph.schema import Schema
-
 
 # ---------- 模型名解析（新缺陷 4） ----------
 

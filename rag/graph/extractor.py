@@ -11,7 +11,6 @@
 import json
 import logging
 import os
-from typing import Optional
 
 from rag.utils.json_parse import parse_json_obj
 
@@ -29,7 +28,7 @@ def _load_rules() -> dict:
     """
     rules_path = os.path.join(os.path.dirname(__file__), "rules.json")
     try:
-        with open(rules_path, "r", encoding="utf-8") as f:
+        with open(rules_path, encoding="utf-8") as f:
             rules = json.load(f)
     except Exception:
         logger.warning("无法加载 rules.json，使用空规则集")
@@ -38,7 +37,7 @@ def _load_rules() -> dict:
     try:
         from rag import config
         if os.path.exists(config.GRAPH_RULES_PATH):
-            with open(config.GRAPH_RULES_PATH, "r", encoding="utf-8") as f:
+            with open(config.GRAPH_RULES_PATH, encoding="utf-8") as f:
                 corpus_rules = json.load(f)
             for key, value in corpus_rules.items():
                 base = rules.get(key)
@@ -68,7 +67,7 @@ class Extractor:
         self._model_name = model_name
         self._rules = _load_rules()
 
-    def extract(self, chunk_text: str, chunk_id: int) -> Optional[ChunkResult]:
+    def extract(self, chunk_text: str, chunk_id: int) -> ChunkResult | None:
         """从单个 chunk 中抽取实体和关系。
 
         Returns:
@@ -169,7 +168,6 @@ class Extractor:
         entity_type_map = {e.name: e.type for e in entities}
 
         min_pred_len = self._rules.get("min_predicate_length", 2)
-        min_desc_len = self._rules.get("min_description_length", 5)
         predicate_blacklist = set(self._rules.get("trivial_predicate_blacklist", []))
         known_male = set(self._rules.get("known_male_characters", []))
         female_keywords = self._rules.get("female_only_keywords", [])

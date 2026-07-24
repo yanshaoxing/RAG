@@ -1,0 +1,27 @@
+name: test
+
+# 离线单测（不依赖内网 / LLM，约 2 秒）+ ruff 静态检查。
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 安装依赖
+        run: pip install -r requirements.txt
+
+      - name: ruff 静态检查
+        run: ruff check .
+
+      - name: pytest 离线单测
+        run: pytest tests/ -q

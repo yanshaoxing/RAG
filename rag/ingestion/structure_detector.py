@@ -151,8 +151,8 @@ def detect_and_persist(slug: str, text: str) -> dict:
     仅在新书首次入库（档案无 chapter_pattern 且内置正则零命中）时被调用；
     章节正则校验通过才写回，小节正则单独存在时不写（无章节切分则小节无意义）。
     """
-    from rag.llm.factory import create_summary_llm
     from rag import corpus as corpus_mod
+    from rag.llm.factory import create_summary_llm
 
     logger.info("步骤 1.0 内置章节正则零命中，采样送 LLM 检测章节结构……")
     result = detect_structure(text, create_summary_llm())

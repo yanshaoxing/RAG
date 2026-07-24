@@ -7,7 +7,6 @@
 """
 
 import logging
-from typing import Optional
 
 from rag import prompts
 

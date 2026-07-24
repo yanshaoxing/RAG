@@ -12,15 +12,14 @@
 """
 
 import logging
-from typing import Optional
 
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle
 from llama_index.retrievers.bm25 import BM25Retriever
 
 from rag import config
-from rag.retrieval.reranker import Reranker
 from rag.retrieval.query_rewriter import QueryRewriter
+from rag.retrieval.reranker import Reranker
 from rag.utils.concurrency import run_parallel_captured
 from rag.utils.text import tokenize_for_bm25
 
@@ -42,9 +41,9 @@ class HybridRetriever(BaseRetriever):
         self,
         vector_retriever: BaseRetriever,
         bm25_retriever: BM25Retriever,
-        reranker: Optional[Reranker] = None,
-        query_rewriter: Optional[QueryRewriter] = None,
-        summary_meta_map: Optional[dict] = None,
+        reranker: Reranker | None = None,
+        query_rewriter: QueryRewriter | None = None,
+        summary_meta_map: dict | None = None,
         decomposer=None,
     ):
         super().__init__()
@@ -246,7 +245,7 @@ class HybridRetriever(BaseRetriever):
         )
 
         if config.DEBUG:
-            self._log(f"  [子查询贡献]")
+            self._log("  [子查询贡献]")
             for i, nodes in enumerate(sub_results):
                 self._log(f"    子查询 {i+1}: {len(nodes)} 条")
 
@@ -256,7 +255,7 @@ class HybridRetriever(BaseRetriever):
 
     def _filter_redundant_summaries(
         self, nodes: list[NodeWithScore],
-        all_node_ids: Optional[set] = None,
+        all_node_ids: set | None = None,
     ) -> tuple[list[NodeWithScore], int]:
         """
         删除冗余摘要节点：若某摘要节点的 child_ids 中，
@@ -318,7 +317,7 @@ class HybridRetriever(BaseRetriever):
     def _do_rerank(
         self, query: str, sorted_ids: list[str],
         node_id_to_node: dict, node_id_to_score: dict,
-    ) -> Optional[list[NodeWithScore]]:
+    ) -> list[NodeWithScore] | None:
         """执行重排序，返回 None 表示跳过或降级（由调用方回退到 RRF top-k）。"""
         if self._reranker is None:
             return None

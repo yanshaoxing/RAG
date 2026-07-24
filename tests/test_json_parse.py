@@ -1,6 +1,6 @@
 """rag/utils/json_parse.py 单测 —— LLM 输出解析的返回类型保证。"""
 
-from rag.utils.json_parse import parse_json_obj, parse_json_list, coerce_index_set
+from rag.utils.json_parse import coerce_index_set, parse_json_list, parse_json_obj
 
 
 class TestParseJsonObj:

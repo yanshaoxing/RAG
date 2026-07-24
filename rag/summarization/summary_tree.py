@@ -14,7 +14,6 @@ import logging
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
-from typing import Optional
 
 from llama_index.core import Document
 
@@ -347,8 +346,8 @@ def _generate_parent_summary(
     group: SummaryGroup,
     level: int,
     use_original: bool = False,
-    max_chars: Optional[int] = None,
-    ratio: Optional[float] = None,
+    max_chars: int | None = None,
+    ratio: float | None = None,
 ) -> SummaryNode:
     """
     将一个分组的子节点合并为一个父级摘要。
@@ -644,7 +643,7 @@ def _generate_book_summary(
         group, level=4, use_original=False,
         max_chars=config.SUMMARY_BOOK_CHARS,
     )
-    _log(f"  L4 全书摘要生成完成")
+    _log("  L4 全书摘要生成完成")
     return [l4_node]
 
 

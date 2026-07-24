@@ -4,16 +4,14 @@
 供 rag/indexing/staged_indexer.py 调用，两个入口（app/cli.py / app/ui.py）不直接使用本模块。
 """
 
-import re
 import logging
+import re
 from pathlib import Path
-from typing import Optional
 
+import docx2txt
 from llama_index.core import Document
 from llama_index.core.ingestion import IngestionPipeline
 from llama_index.core.schema import BaseNode, TextNode, TransformComponent
-
-import docx2txt
 
 from rag import config
 
@@ -195,7 +193,7 @@ def _resolve_structure_patterns(texts: list[tuple[str, str]]) -> tuple[str, str]
     return result.get("chapter_pattern", ""), result.get("subsection_pattern", "")
 
 
-def load_documents(data_dir: Optional[str] = None) -> list[Document]:
+def load_documents(data_dir: str | None = None) -> list[Document]:
     """
     从 data 目录加载所有 .docx / .txt 文件，按章节→小节拆分为 Document 列表。
 
@@ -217,7 +215,7 @@ def load_documents(data_dir: Optional[str] = None) -> list[Document]:
         if suffix == ".docx":
             text = docx2txt.process(str(fp))
         elif suffix == ".txt":
-            with open(fp, "r", encoding="utf-8") as f:
+            with open(fp, encoding="utf-8") as f:
                 text = f.read()
         else:
             continue

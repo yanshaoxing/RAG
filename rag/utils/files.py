@@ -35,7 +35,7 @@ def stage_complete(stage_dir: str) -> bool:
 def read_stage_info(stage_dir: str) -> dict:
     """读取阶段完成标记内容（不存在或损坏时返回空字典）。"""
     try:
-        with open(os.path.join(stage_dir, DONE_MARKER), "r", encoding="utf-8") as f:
+        with open(os.path.join(stage_dir, DONE_MARKER), encoding="utf-8") as f:
             info = json.load(f)
         return info if isinstance(info, dict) else {}
     except (FileNotFoundError, json.JSONDecodeError):

@@ -72,7 +72,7 @@ class TestValidateChapterPattern:
 
     def test_overlong_title_rejected(self):
         # 正则过宽：匹配到正文行开头（"这"），命中行超长
-        text = "\n".join(f"这是一段没有真正章节标题的超长正文行，" * 5 for _ in range(5))
+        text = "\n".join("这是一段没有真正章节标题的超长正文行，" * 5 for _ in range(5))
         assert not sd.validate_chapter_pattern(r"这", text)
 
 

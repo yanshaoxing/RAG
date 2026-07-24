@@ -17,19 +17,17 @@ run_parallel_captured 的约定：
 
 import contextvars
 import logging
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Optional, TypeVar
 
 from rag.logging_utils import capture_pipeline_logs, replay_into_capture
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 
-
-def run_parallel_captured(
+def run_parallel_captured[T](
     tasks: list[Callable[[], T]],
-    max_workers: Optional[int] = None,
+    max_workers: int | None = None,
 ) -> list[T]:
     """并行执行无参任务列表，按提交顺序返回结果列表。
 
@@ -66,7 +64,7 @@ def run_parallel_captured(
         outcomes = [f.result() for f in futures]
 
     results: list[T] = []
-    first_exc: Optional[Exception] = None
+    first_exc: Exception | None = None
     for result, lines, exc in outcomes:
         replay_into_capture(lines)
         if exc is not None and first_exc is None:

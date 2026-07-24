@@ -7,22 +7,21 @@
 
 import logging
 import threading
-from typing import Optional
 
 from llama_index.core import Settings
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.embeddings.ollama import OllamaEmbedding
 
 from rag import config, corpus
-from rag.indexing.staged_indexer import get_or_build_index
-from rag.retrieval.reranker import Reranker
-from rag.retrieval.hybrid_retriever import HybridRetriever, _safe_text
-from rag.graph.graph_retriever import GraphRetriever
 from rag.engine.query_engine import create_query_engine
-from rag.retrieval.query_rewriter import QueryRewriter
-from rag.retrieval.query_decomposer import QueryDecomposer
-from rag.llm.factory import create_answer_llm, create_rewrite_llm
+from rag.graph.graph_retriever import GraphRetriever
+from rag.indexing.staged_indexer import get_or_build_index
 from rag.llm.embedding import MeteredOpenAILikeEmbedding
+from rag.llm.factory import create_answer_llm, create_rewrite_llm
+from rag.retrieval.hybrid_retriever import HybridRetriever, _safe_text
+from rag.retrieval.query_decomposer import QueryDecomposer
+from rag.retrieval.query_rewriter import QueryRewriter
+from rag.retrieval.reranker import Reranker
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +54,7 @@ def init_settings() -> None:
 _BUILD_LOCK = threading.Lock()
 
 
-def build_query_engine(corpus_slug: Optional[str] = None) -> RetrieverQueryEngine:
+def build_query_engine(corpus_slug: str | None = None) -> RetrieverQueryEngine:
     """构建/加载索引并组装完整查询引擎（检索器 + 重排 + 图增强）。
 
     Args:

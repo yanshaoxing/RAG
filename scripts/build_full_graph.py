@@ -1,8 +1,8 @@
 """构建全书的完整知识图谱"""
-import os
-import sys
 import asyncio
 import logging
+import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -10,10 +10,11 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from llama_index.core import Settings
-from rag.ingestion.preprocessor import load_documents
-from rag.graph.graph_constructor import build_graph
-from rag.engine.bootstrap import init_settings
+
 from rag import config
+from rag.engine.bootstrap import init_settings
+from rag.graph.graph_constructor import build_graph
+from rag.ingestion.preprocessor import load_documents
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)

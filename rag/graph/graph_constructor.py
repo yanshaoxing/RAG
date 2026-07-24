@@ -15,8 +15,8 @@ import logging
 import os
 import shutil
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Callable, Optional
 
 import kuzu
 from llama_index.core.embeddings import MockEmbedding
@@ -251,8 +251,8 @@ def build_graph(
     documents: list[Document],
     llm,
     force_rebuild: bool = False,
-    resume_from: Optional[int] = None,
-) -> Optional[PropertyGraphIndex]:
+    resume_from: int | None = None,
+) -> PropertyGraphIndex | None:
     """从原始文档构建 PropertyGraph 索引并持久化到 Kuzu。
 
     Args:
@@ -494,7 +494,7 @@ def build_graph(
     return index
 
 
-def load_graph() -> Optional[PropertyGraphIndex]:
+def load_graph() -> PropertyGraphIndex | None:
     """从 Kuzu 加载已有的 PropertyGraph 索引。
 
     Returns:
@@ -526,7 +526,7 @@ def load_graph() -> Optional[PropertyGraphIndex]:
                 index = PropertyGraphIndex.from_existing(
                     property_graph_store=graph_store,
                 )
-                _log(f"  已加载知识图谱（清理 WAL 后重试成功）")
+                _log("  已加载知识图谱（清理 WAL 后重试成功）")
                 return index
             except Exception as e2:
                 _log(f"  知识图谱加载失败（清理 WAL 后仍失败）: {e2}")

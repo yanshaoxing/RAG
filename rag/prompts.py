@@ -314,7 +314,8 @@ GRAPH_VALIDATE_PROMPT = (
     '{{\n'
     '  "valid":[0,2],\n'
     '  "invalid":[1,3],\n'
-    '  "corrected":[{{"index":1,"subject":"李芳","predicate":"持有","object":"大学毕业证","description":"修正后的描述"}}],\n'
+    '  "corrected":[{{"index":1,"subject":"李芳","predicate":"持有",'
+    '"object":"大学毕业证","description":"修正后的描述"}}],\n'
     '  "reasons":{{"1":"原文中证书属于李芳，王强只是翻看"}}\n'
     '}}\n'
     '其中序号从0开始，对应待校验三元组的顺序。\n'
@@ -325,7 +326,8 @@ GRAPH_VALIDATE_PROMPT = (
 )
 
 # 实体名称规范化（别名 → Canonical Name）
-CANONICALIZE_PROMPT = """你是一个实体名称规范化助手。给定一个「候选名称」和一个「已知实体名称列表」，判断候选名称是否是某个已知实体的别名或简称。
+CANONICALIZE_PROMPT = """你是一个实体名称规范化助手。给定一个「候选名称」和一个「已知实体名称列表」，\
+判断候选名称是否是某个已知实体的别名或简称。
 
 候选名称：{candidate}
 

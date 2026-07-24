@@ -12,9 +12,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
 from llama_index.core.llms import ChatMessage, ChatResponse, MessageRole
-from llama_index.core.schema import NodeWithScore, TextNode, QueryBundle
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 
 from rag.engine.query_engine import GraphAugmentedQueryEngine
 

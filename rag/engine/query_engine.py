@@ -8,17 +8,17 @@
 """
 
 import logging
-from typing import Optional, List, Sequence
+from collections.abc import Sequence
 
-from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.core import PromptTemplate, Settings
 from llama_index.core.base.response.schema import StreamingResponse
-from llama_index.core.llms import ChatMessage, MessageRole
-from llama_index.core.schema import NodeWithScore, TextNode, QueryBundle, MetadataMode
 from llama_index.core.callbacks.schema import CBEventType, EventPayload
+from llama_index.core.llms import ChatMessage, MessageRole
+from llama_index.core.query_engine import RetrieverQueryEngine
+from llama_index.core.schema import MetadataMode, NodeWithScore, QueryBundle, TextNode
 
 from rag import config, prompts
-from rag.retrieval.hybrid_retriever import HybridRetriever, _safe_text
+from rag.retrieval.hybrid_retriever import HybridRetriever
 from rag.utils.concurrency import run_parallel_captured
 
 logger = logging.getLogger(__name__)
@@ -53,8 +53,8 @@ class GraphAugmentedQueryEngine(RetrieverQueryEngine):
     def synthesize(
         self,
         query_bundle: QueryBundle,
-        nodes: List[NodeWithScore],
-        additional_source_nodes: Optional[Sequence[NodeWithScore]] = None,
+        nodes: list[NodeWithScore],
+        additional_source_nodes: Sequence[NodeWithScore] | None = None,
     ):
         """回答合成。流式时绕开 llama_index 的 Refine 合成器直接逐 token 流式，
         否则沿用父类成熟的 compact 合成。
@@ -89,7 +89,7 @@ class GraphAugmentedQueryEngine(RetrieverQueryEngine):
 
         return StreamingResponse(response_gen=response_gen(), source_nodes=source_nodes)
 
-    def retrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+    def retrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         if self._graph_retriever is None or not self._graph_retriever.is_available:
             return super().retrieve(query_bundle)
 

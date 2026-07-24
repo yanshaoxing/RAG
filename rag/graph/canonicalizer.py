@@ -8,7 +8,6 @@
 """
 
 import logging
-from typing import Optional
 
 from rag import prompts
 from rag.utils.json_parse import parse_json_obj
@@ -30,7 +29,7 @@ class Canonicalizer:
         self,
         candidate: str,
         known_names: list[str],
-    ) -> Optional[str]:
+    ) -> str | None:
         """将候选名称映射到已知实体名称。
 
         Args:

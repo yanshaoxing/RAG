@@ -14,7 +14,6 @@ import logging
 import os
 import sqlite3
 import time
-from typing import Optional
 
 from .models import Entity, Relation
 
@@ -83,7 +82,7 @@ class GraphCache:
 
     def __init__(self, db_path: str):
         self._db_path = db_path
-        self._conn: Optional[sqlite3.Connection] = None
+        self._conn: sqlite3.Connection | None = None
         self._init_db()
 
     def _init_db(self):
@@ -298,7 +297,7 @@ class GraphCache:
         )
         self._conn.commit()
 
-    def get_metadata(self, key: str) -> Optional[str]:
+    def get_metadata(self, key: str) -> str | None:
         row = self._conn.execute(
             "SELECT value FROM metadata WHERE key = ?", (key,)
         ).fetchone()

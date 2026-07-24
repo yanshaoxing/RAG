@@ -30,9 +30,10 @@ message.content（<think> 剥离器看不到），不单列则账单与可见输
 import contextvars
 import threading
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass, field
-from typing import Iterator, Optional
+from typing import Optional
 
 from rag import config
 
@@ -56,7 +57,7 @@ class ModelUsage:
     unmetered_calls: int = 0       # 未回传 usage 的调用次数
 
     @property
-    def cost(self) -> Optional[float]:
+    def cost(self) -> float | None:
         """按 config.MODEL_PRICES 估算费用（元）。未知模型返回 None，不静默算 0。"""
         price = config.MODEL_PRICES.get(self.model)
         if price is None:
@@ -90,7 +91,7 @@ class Meter:
         self,
         model: str,
         kind: str,
-        prompt_tokens: Optional[int] = None,
+        prompt_tokens: int | None = None,
         completion_tokens: int = 0,
         reasoning_tokens: int = 0,
         cached_tokens: int = 0,
@@ -116,7 +117,7 @@ class Meter:
     # ---------- 汇总 ----------
 
     @property
-    def total_cost(self) -> Optional[float]:
+    def total_cost(self) -> float | None:
         """总费用（元）。任一模型缺单价则返回 None（宁可不报，也不报错数）。"""
         costs = [u.cost for u in self.models.values()]
         if not costs or any(c is None for c in costs):
@@ -170,7 +171,7 @@ class Meter:
 
 # ---------- 上下文 API ----------
 
-def current_meter() -> Optional[Meter]:
+def current_meter() -> Meter | None:
     """当前上下文的 Meter（未开启计量时为 None）。"""
     return _current_meter.get()
 
@@ -189,7 +190,7 @@ def capture_usage() -> Iterator[Meter]:
 def record_usage(
     model: str,
     kind: str,
-    prompt_tokens: Optional[int] = None,
+    prompt_tokens: int | None = None,
     completion_tokens: int = 0,
     reasoning_tokens: int = 0,
     cached_tokens: int = 0,

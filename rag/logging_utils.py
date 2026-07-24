@@ -26,10 +26,10 @@
 import contextvars
 import logging
 import threading
+from collections.abc import Iterator
 from contextlib import contextmanager
-from typing import Iterator, Optional
 
-_current_buffer: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar(
+_current_buffer: contextvars.ContextVar[list | None] = contextvars.ContextVar(
     "rag_pipeline_log_buffer", default=None
 )
 

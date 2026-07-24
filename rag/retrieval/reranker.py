@@ -13,7 +13,6 @@
 
 import logging
 import time
-from typing import Optional
 
 import requests
 
@@ -32,8 +31,8 @@ class Reranker:
 
     def __init__(
         self,
-        base_url: Optional[str] = None,
-        model_name: Optional[str] = None,
+        base_url: str | None = None,
+        model_name: str | None = None,
         timeout: float = config.RERANK_TIMEOUT,
     ):
         # 显式传入 base_url 时视为 vLLM 风格端点（测试/内网直连均走此路径）
@@ -79,7 +78,7 @@ class Reranker:
 
         raise RuntimeError("Reranker 重试逻辑异常退出")  # 理论上不可达
 
-    def rerank(self, query: str, documents: list[str], top_k: int) -> Optional[list[tuple[int, float]]]:
+    def rerank(self, query: str, documents: list[str], top_k: int) -> list[tuple[int, float]] | None:
         """对文档列表重排序，返回 [(原始索引, 分数), ...]，按分数降序。
 
         调用失败时返回 None（降级信号），由调用方回退到 RRF 顺序，

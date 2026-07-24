@@ -151,6 +151,7 @@ class TestConcurrencyPropagation:
     def test_worker内的日志顺序不受上下文传播影响(self):
         """回归：为传播 meter 引入 copy_context 后，日志仍须按任务提交顺序回放。"""
         import logging
+
         from rag.logging_utils import capture_pipeline_logs
 
         log = logging.getLogger("rag.test_metering")

@@ -72,7 +72,7 @@ class _FakeSSEResponse:
     def iter_lines(self):
         for d in self._deltas:
             payload = {"choices": [{"delta": {"content": d}}]}
-            yield f"data: {json.dumps(payload, ensure_ascii=False)}".encode("utf-8")
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}".encode()
         yield b"data: [DONE]"
 
     def close(self):
@@ -122,7 +122,7 @@ class _BrokenSSEResponse:
             if i >= self._n:
                 raise ConnectionError("stream broken")
             payload = {"choices": [{"delta": {"content": d}}]}
-            yield f"data: {json.dumps(payload, ensure_ascii=False)}".encode("utf-8")
+            yield f"data: {json.dumps(payload, ensure_ascii=False)}".encode()
         raise ConnectionError("stream broken")
 
     def close(self):

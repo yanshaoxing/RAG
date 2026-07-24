@@ -8,9 +8,11 @@ import json
 import logging
 import re
 import time
-from typing import Any, Optional, Sequence
+from collections.abc import Sequence
+from typing import Any
 
 import requests
+from llama_index.core.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_NUM_OUTPUTS
 from llama_index.core.llms import (
     ChatMessage,
     ChatResponse,
@@ -21,7 +23,6 @@ from llama_index.core.llms import (
     LLMMetadata,
     MessageRole,
 )
-from llama_index.core.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_NUM_OUTPUTS
 from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
 from llama_index.llms.ollama import Ollama
 
@@ -136,7 +137,7 @@ class DavyLLM(CustomLLM):
     temperature: float = config.DAVY_TEMPERATURE
     request_timeout: float = config.DAVY_TIMEOUT
     # None = 不传该参数（Davy 内网端点不认识它）；True/False = 显式开关思考
-    enable_thinking: Optional[bool] = None
+    enable_thinking: bool | None = None
     # 如实申报给 llama_index —— 报小会导致合成器多轮 refine（见 config 注释）。
     # 默认沿用 llama_index 的保守值，公网模型由 _create_aliyun_llm 显式覆盖。
     context_window: int = DEFAULT_CONTEXT_WINDOW
@@ -144,15 +145,15 @@ class DavyLLM(CustomLLM):
 
     def __init__(
         self,
-        model_name: Optional[str] = None,
-        base_url: Optional[str] = None,
-        cert_path: Optional[str] = None,
-        api_key: Optional[str] = None,
-        temperature: Optional[float] = None,
-        request_timeout: Optional[float] = None,
-        enable_thinking: Optional[bool] = None,
-        context_window: Optional[int] = None,
-        num_output: Optional[int] = None,
+        model_name: str | None = None,
+        base_url: str | None = None,
+        cert_path: str | None = None,
+        api_key: str | None = None,
+        temperature: float | None = None,
+        request_timeout: float | None = None,
+        enable_thinking: bool | None = None,
+        context_window: int | None = None,
+        num_output: int | None = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
@@ -185,7 +186,7 @@ class DavyLLM(CustomLLM):
         )
 
     @staticmethod
-    def _strip_thinking(text: Optional[str]) -> str:
+    def _strip_thinking(text: str | None) -> str:
         """移除 <thinking>/<think> 思考块（Qwen/DeepSeek 惯用 <think>）。content 为 None 时返回空串。"""
         if not text:
             return ""
@@ -225,7 +226,7 @@ class DavyLLM(CustomLLM):
     _RETRYABLE_STATUS = (429, 500, 502, 503, 504)
 
     @staticmethod
-    def _retry_delay(response: Optional[requests.Response], attempt: int) -> float:
+    def _retry_delay(response: requests.Response | None, attempt: int) -> float:
         """计算重试等待时间：优先尊重 Retry-After 头，否则指数退避。"""
         if response is not None:
             retry_after = response.headers.get("Retry-After", "")
@@ -242,7 +243,7 @@ class DavyLLM(CustomLLM):
             "Authorization": f"Bearer {self.api_key}",
         }
         max_retries = config.DAVY_MAX_RETRIES
-        response: Optional[requests.Response] = None
+        response: requests.Response | None = None
 
         for attempt in range(max_retries + 1):
             try:
@@ -408,8 +409,8 @@ def _create_davy_llm(**kwargs: Any) -> DavyLLM:
     return DavyLLM(**kwargs)
 
 
-def _create_aliyun_llm(model_name: Optional[str] = None,
-                       temperature: Optional[float] = None) -> DavyLLM:
+def _create_aliyun_llm(model_name: str | None = None,
+                       temperature: float | None = None) -> DavyLLM:
     """创建阿里云（公网 OpenAI 兼容端点）LLM，复用 DavyLLM 客户端。"""
     _require_api_key(config.ALIYUN_CHAT_API_KEY, "RAG_PUBLIC_CHAT_API_KEY", "阿里云 chat 端点")
     return DavyLLM(
@@ -464,7 +465,7 @@ def create_summary_llm() -> CustomLLM:
     )
 
 
-def create_validate_llm() -> Optional[CustomLLM]:
+def create_validate_llm() -> CustomLLM | None:
     """创建三元组校验用的 LLM（不同模型交叉校验更可靠）。"""
     if not config.GRAPH_VALIDATE_ENABLED:
         return None

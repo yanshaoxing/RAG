@@ -3,6 +3,7 @@
 """
 
 import logging
+
 from .models import BuildMetrics
 
 logger = logging.getLogger(__name__)

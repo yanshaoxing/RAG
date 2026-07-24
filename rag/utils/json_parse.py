@@ -10,7 +10,6 @@ canonicalizer / graph_retriever 中复制了 4 份，且未处理 json_repair
 import json
 import logging
 import re
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ def _repair(text: str):
         return None
 
 
-def parse_json_obj(text: str) -> Optional[dict]:
+def parse_json_obj(text: str) -> dict | None:
     """从 LLM 输出中解析 JSON 对象。返回 dict，无法解析（或结果不是 dict）返回 None。"""
     if not text:
         return None
@@ -47,7 +46,7 @@ def parse_json_obj(text: str) -> Optional[dict]:
     return None
 
 
-def parse_json_list(text: str) -> Optional[list]:
+def parse_json_list(text: str) -> list | None:
     """从 LLM 输出中解析 JSON 数组。返回 list，无法解析（或结果不是 list）返回 None。"""
     if not text:
         return None

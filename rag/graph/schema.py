@@ -13,9 +13,6 @@ import json
 import logging
 import os
 import threading
-from typing import Optional
-
-from .models import SchemaTypeInfo
 
 logger = logging.getLogger(__name__)
 
@@ -114,8 +111,8 @@ class Schema:
 
     def __init__(
         self,
-        builtin_types: Optional[dict[str, str]] = None,
-        relation_map: Optional[dict[str, str]] = None,
+        builtin_types: dict[str, str] | None = None,
+        relation_map: dict[str, str] | None = None,
         growth_threshold: int = 5,
     ):
         self._builtin: dict[str, str] = builtin_types or dict(BUILTIN_ENTITY_TYPES)
@@ -262,7 +259,7 @@ class Schema:
         """从缓存加载 Schema，如果不存在则创建新的。growth_threshold 以传入值为准。"""
         if os.path.exists(cache_path):
             try:
-                with open(cache_path, "r", encoding="utf-8") as f:
+                with open(cache_path, encoding="utf-8") as f:
                     data = json.load(f)
                 logger.info(f"  从缓存加载 Schema: {len(data.get('learned_types', {}))} 个 learned 类型")
                 schema = cls.from_dict(data)

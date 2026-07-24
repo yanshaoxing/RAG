@@ -44,7 +44,7 @@ def _fingerprint(nodes: list, model_name: str) -> str:
 def _load_manifest(path: str) -> dict:
     import json
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return data

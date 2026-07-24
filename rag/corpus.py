@@ -73,7 +73,7 @@ def load_profile(slug: str) -> CorpusProfile:
             f"请确认 RAG_CORPUS={slug} 正确，且 corpora/{slug}/corpus.json 已创建"
             f"（必需字段：title、context）。"
         )
-    with open(profile_path, "r", encoding="utf-8") as f:
+    with open(profile_path, encoding="utf-8") as f:
         data = json.load(f)
     missing = [k for k in ("title", "context") if not data.get(k)]
     if missing:
@@ -100,7 +100,7 @@ def save_structure_patterns(slug: str, chapter_pattern: str,
     from rag.utils.files import atomic_write_json
 
     profile_path = os.path.join(config.CORPORA_ROOT, slug, "corpus.json")
-    with open(profile_path, "r", encoding="utf-8") as f:
+    with open(profile_path, encoding="utf-8") as f:
         data = json.load(f)
     if chapter_pattern:
         data["chapter_pattern"] = chapter_pattern
