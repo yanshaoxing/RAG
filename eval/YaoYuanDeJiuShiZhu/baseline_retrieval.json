@@ -1,0 +1,251 @@
+{
+  "corpus": "YaoYuanDeJiuShiZhu",
+  "qa_path": "eval/YaoYuanDeJiuShiZhu/qa.jsonl",
+  "n": 12,
+  "ks": [
+    3,
+    5,
+    10
+  ],
+  "config": {
+    "REWRITE_ENABLED": true,
+    "DECOMPOSE_ENABLED": true,
+    "RERANK_ENABLED": true,
+    "GRAPH_ENABLED": true,
+    "SUMMARY_TREE_ENABLED": true,
+    "RETRIEVAL_TOP_K": 30,
+    "RRF_K": 60.0,
+    "RERANK_CANDIDATE_POOL_SIZE": 20,
+    "GAP_THRESHOLD": 0.2,
+    "SUMMARY_REDUNDANCY_THRESHOLD": 0.5
+  },
+  "aggregate": {
+    "overall": {
+      "n": 12,
+      "recall": {
+        "3": 0.9167,
+        "5": 0.9722,
+        "10": 1.0
+      },
+      "mrr": 0.8472,
+      "hit_rate": 1.0,
+      "mean_first_hit_rank": 1.42
+    },
+    "by_type": {
+      "cross": {
+        "n": 2,
+        "recall": {
+          "3": 0.6667,
+          "5": 0.8333,
+          "10": 1.0
+        },
+        "mrr": 0.6667,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 2.0
+      },
+      "fact": {
+        "n": 5,
+        "recall": {
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 1.0
+      },
+      "macro": {
+        "n": 2,
+        "recall": {
+          "3": 0.8333,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 1.0
+      },
+      "relation": {
+        "n": 3,
+        "recall": {
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 0.6111,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 2.0
+      }
+    }
+  },
+  "per_question": [
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y01",
+      "type": "fact",
+      "question": "芮小丹的母亲经营的是一家什么店？叫什么名字？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y02",
+      "type": "fact",
+      "question": "丁元英是哪一年考入清华大学的？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y03",
+      "type": "fact",
+      "question": "私募基金的清算分红定在什么时间、什么地点？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y04",
+      "type": "fact",
+      "question": "肖亚文解释的私募基金是什么意思？丁总募集的资金来自哪里、针对哪个市场？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y05",
+      "type": "fact",
+      "question": "芮小丹打算把在古城租房子的具体事务交给谁去办？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 0.5,
+      "first_hit_rank": 2,
+      "id": "y06",
+      "type": "relation",
+      "question": "芮小丹和肖亚文是什么关系？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 0.3333333333333333,
+      "first_hit_rank": 3,
+      "id": "y07",
+      "type": "relation",
+      "question": "肖亚文和丁元英之间是什么关系？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y08",
+      "type": "relation",
+      "question": "张慧敏是谁？她和芮小丹是什么关系？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 3,
+      "recall": {
+        "3": 0.3333333333333333,
+        "5": 0.6666666666666666,
+        "10": 1.0
+      },
+      "rr": 0.3333333333333333,
+      "first_hit_rank": 3,
+      "id": "y09",
+      "type": "cross",
+      "question": "肖亚文特意自费飞到法兰克福找芮小丹，到底是为了托付什么事？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 2,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y10",
+      "type": "cross",
+      "question": "芮小丹对自己今后的职业和人生有什么打算？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 3,
+      "recall": {
+        "3": 0.6666666666666666,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y11",
+      "type": "macro",
+      "question": "肖亚文是怎么评价丁元英这个人的？",
+      "n_retrieved": 11
+    },
+    {
+      "n_gold": 2,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "y12",
+      "type": "macro",
+      "question": "肖亚文为什么反复叮嘱芮小丹不要对丁元英动心思？",
+      "n_retrieved": 11
+    }
+  ]
+}

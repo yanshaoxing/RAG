@@ -8,7 +8,7 @@
 
 ## 📍 下次继续（交接）
 
-**当前进度**：批次 0、1、2、3、4 已完成；期间连带完成 P0-2、P1-4、P1-5、P1-6、P1-7、P2-2 及模型迁移。离线单测 **346** 例全过 + `ruff check .` 零告警。批次 4 提交待记，工作区含批次 4 改动。
+**当前进度**：批次 0、1、2、3、4、5 已完成；期间连带完成 P0-2、P1-4、P1-5、P1-6、P1-7、P2-2 及模型迁移。离线单测 **369** 例全过 + `ruff check .` 零告警。工作区干净（批次 5 已提交 `cd7c342`）。
 
 **已完成**（详见各条目内的 ✅ 标记）：
 
@@ -21,15 +21,18 @@
 | P1-7 | 如实申报上下文窗口（1M），避免全书查询多轮 refine | `a05d322` |
 | 批次 2（P1-4） | GitHub Actions（ruff + pytest）+ `pyproject.toml`（pytest/ruff 配置） | `82e512c` |
 | 批次 3（P1-5） | 三个高风险模块补测试（`staged_indexer` 阶段跳转矩阵 / `graph_retriever` / `cache` 断点续传），+42 例 | `21c2f3b` |
-| 批次 4 | 三路检索并发（P1-1）+ 查询级缓存（P2-4，默认关）+ 阶段依赖图（P2-6）+ `--rebuild <stage>` 命令（P2-3），+15 例 | 待记 |
+| 批次 4 | 三路检索并发（P1-1）+ 查询级缓存（P2-4，默认关）+ 阶段依赖图（P2-6）+ `--rebuild <stage>` 命令（P2-3），+15 例 | `6d28755` |
+| 批次 5（P0-1） | 评测脚手架：`eval/<slug>/qa.jsonl` + `eval_retrieval.py` + `eval_answer.py` + `eval_common.py` + 四份基线，+23 例 | `cd7c342` |
 
 **批次 3 落地细节**：给全项目最易改错的三处补了纯离线单测（不依赖内网/LLM/真实 Kuzu），单测从 289 → **331** 例。① `staged_indexer` **阶段跳转矩阵**：桩掉 5 个 build 阶段 + 5 个 load 分支 + `_stage_complete`，用「已完成阶段集合」精确控制 `start_from`，断言删第 N 阶段 → 恰好 rebuild 第 N..4、load 第 0..N-1；锁死了「只删图谱阶段时 chunks 既不 build 也不 load」这类隐藏分支，以及删除范围只含下游、功能开关禁用阶段不参与扫描也不 build/load。删除循环的 `rmtree`/`os.path.exists` 一并桩掉，绝不误删真实语料 `data/`。② `graph_retriever`：假 LLM + 假图谱存储，覆盖可用性短路、**参数化查询防注入**（实体名只进 `param_map`、绝不拼进 Cypher 串）、三元组去重、单实体查询异常不拖垮整体、`TOP_K`/`MAX_TRIPLES` 限额。③ `cache`：**断点续传正确性**——`processing`（崩溃残留）绝不算已完成、文本变更视为未处理、跨进程重开 DB 后已完成集合原样恢复；外加关系字段无损往返、归一化重写端点、描述合并取最长。**过程中发现一处既有行为**：全部完成的加载分支里 `load_graph()` 是无条件调用的，`GRAPH_ENABLED` 守卫只在重建路径生效（测试已按此如实断言，未改动代码）。
 
 **批次 4 落地细节**：四项一并落地，离线单测 331 → **346** 例。① **三路检索并发（P1-1）**：`hybrid_retriever._single_query_retrieve` 把向量(NL)/向量(HyDE)/BM25 三路包成三个闭包任务，用现成的 `run_parallel_captured(max_workers=RETRIEVAL_ROUTE_MAX_CONCURRENCY=3)` 并发；BM25 的 `original_text` 还原逻辑搬进该路任务内。两路向量各省一次串行 embedding 往返，子查询分解场景收益乘子查询数；日志顺序仍由该工具按提交序回放保序。② **查询级缓存（P2-4，默认关）**：`_retrieve` 外加一层实例级 LRU，key = (语料 slug〔构建期绑定〕 + 原始 query + 检索 config 指纹)，只缓存检索结果、不缓存回答（回答仍流式）。`QUERY_CACHE_ENABLED`/`QUERY_CACHE_MAX_SIZE` 两个开关，指纹只含影响检索结果的项（改写/分解/重排开关、召回量、RRF、过滤阈值）。③ **阶段依赖图（P2-6）**：`staged_indexer` 的阶段表从线性链改成带依赖声明的 `_Stage` 图（`chunks→summary→{bm25,vector}`，`graph→(raw)`）。`get_or_build_index` 改用 `_compute_dirty` 按依赖闭包判定重建集：删向量**不再连带删图谱**（图谱只依赖 `raw/`），bm25 与 vector 互不牵连。顺带修掉旧「全完成」分支无条件 `load_graph()`（`GRAPH_ENABLED=False` 时也不再误加载图谱）与无谓加载 chunks。④ **`--rebuild <stage>`（P2-3）**：CLI 加 `--rebuild {chunks,summary,bm25,vector,graph} [-c slug] [--yes]`，复用 `plan_rebuild`/`rebuild_stages` 按依赖闭包打印将删阶段清单，`--yes` 才真删（删后下次运行触发重建）。测试：重写阶段跳转矩阵为依赖闭包语义（新增「删向量不连带图谱」「bm25/向量互不牵连」「禁用图谱全完成也不加载图谱」等），加 `TestRebuildClosure`（闭包正确性 + 未知阶段报错 + apply 真删/预览不删）与 `TestQueryCache`（命中跳过管线 / 指纹失效 / LRU 淘汰）。
 
+**批次 5 落地细节**：评测脚手架落地，离线单测 346 → **369** 例。① **QA 集**：`eval/YaoYuanDeJiuShiZhu/qa.jsonl`（12 题）+ `eval/WuLingChaShi/qa.jsonl`（7 题），每题 `{id, type, question, gold_chunk_ids, gold_answer_points}`，`type` 覆盖 fact/relation/cross/macro 四类；`gold_chunk_ids` 引用 `data/chunks/chunks.json` 的 node_id。② **`scripts/eval_common.py`（纯函数，离线可测）**：指标计算 + jsonl/chunks 读取 + `--config-override` 解析全放这里；关键设计——**命中判定按内容不按 node_id**：检索返回节点的 node_id 会随重建变化（实测 YaoYuan 索引 node_id 与当前 chunks.json 已不一致，最初一版按 id 匹配全 0 召回就是踩了这个坑），故 gold 用 chunks.json 顺序下标标识（由 gold_chunk_ids 经 id2idx 换算），被检索原始 chunk 按**正文内容包含**反解回下标（相邻 chunk 重叠时取最长匹配），摘要节点按 `summary_chunk_range` 覆盖区间给分。③ **`scripts/eval_retrieval.py`**：只检索不合成回答（省回答 LLM 钱），按 type 输出 Recall@k / MRR / 首命中排名；`--config-override KEY=VALUE`（可重复、自动转型、构建前 setattr 到 config）做单参数扫描；`--save` 落 JSON、`--limit` 冒烟。④ **`scripts/eval_answer.py`**：完整问答 + **异模型 LLM-as-judge**（`create_validate_llm`，被 `GRAPH_VALIDATE_ENABLED=False` 关掉时用 `ALIYUN_VALIDATE_MODEL` 兜底），忠实度/引用/完整度 1~5 分 + 要点命中率；judge 提示词进 `rag/prompts.py::EVAL_JUDGE_TEMPLATE_STR`（已登记进 `test_prompts` 占位符守卫）。⑤ **基线**：四份 `eval/<slug>/baseline_{retrieval,answer}.json` + `eval/README.md`。**当前极小语料区分度有限**（两本 Recall@10 均 1.00、回答三维基本满分），真正标定 `*_MIN_SCORE` 等要等整书（批次 7）后复用本脚手架。测试：`tests/test_eval_common.py` 22 例覆盖内容反解（含章节前缀/重叠取最长/未命中）、Recall@k/MRR/首命中、摘要给分、按 type 汇总、`--config-override` 转型与报错、io。
+
 **批次 2 落地细节**：`pyproject.toml` 收编 pytest（`testpaths`/`pythonpath`）与 ruff（`select = E,F,I,UP`）；`.github/workflows/test.yml` 在 push/PR 上跑 `ruff check .` + `pytest`。**ruff `line-length` 取 120**（非计划里的 100）——本项目是中文代码库，ruff 按每汉字 1 宽计数，100 对应视觉约 160+ 列过紧，44 处 E501 里 6 处还在 `prompts.py` 提示词字符串内，改动风险高；120 只剩 2 处、且不动提示词内容（已征得用户同意）。`target-version = py312` 连带触发 UP047，已把 `run_parallel_captured` 改为 PEP 695 泛型语法。全量 autofix 涉及 44 文件（导入排序 + 类型现代化 `Optional[X]→X|None` 等，纯机械、已 import 冒烟 + 全测验证）。`ruff==0.14.4` 已加进 `requirements.txt`。
 
-**下一步**：**批次 5（评测脚手架 P0-1：`eval/<slug>/qa.jsonl` + `scripts/eval_retrieval.py` + `scripts/eval_answer.py`，仍不需要整书）** → 批次 6。分界线之后（批次 7~9）才需要整书。
+**下一步**：**批次 6**（剩余 P2 小项：P2-1 CLI 显式传 slug、P2-5/等锦上添花项，仍不需要整书）。分界线之后（批次 7~9）需要整书：全本入库、`*_MIN_SCORE` 标定（复用批次 5 评测脚手架）、消融实验、`data/` 存储策略（git-lfs / 一键重建）。
 
 **挂起项（需用户操作 / 确认，不阻塞我继续）**：
 - ⚠️ **Davy 旧 key 仍在 git 历史**（`c5220a9` 及之前 `rag/config.py:138`）——用户已知悉，暂缓轮换。
@@ -38,9 +41,15 @@
 
 ---
 
-## P0-1 没有评估集，所有检索调参都是盲调
+## P0-1 没有评估集，所有检索调参都是盲调 —— ✅ 已完成（批次 5）
 
-**现状**：仓库里没有任何 QA 评测集、检索指标脚本或回归基线。224 例单测全部是"管线不崩"的结构性测试，没有一条断言"这个问题能召回正确的段落"。
+**已落地**：`eval/<slug>/qa.jsonl`（YaoYuan 12 题 + WuLing 7 题，覆盖 fact/relation/cross/macro 四类）
++ `scripts/eval_retrieval.py`（Recall@k / MRR / 首命中排名，按 type 分组，`--config-override` 单参数扫描）
++ `scripts/eval_answer.py`（异模型 LLM-as-judge：忠实度/引用/完整度 + 要点命中率）
++ 纯函数 `scripts/eval_common.py`（离线单测 `tests/test_eval_common.py` 22 例覆盖）
++ 四份基线 `eval/<slug>/baseline_{retrieval,answer}.json` + `eval/README.md`。详见「下次继续 · 批次 5 落地细节」。
+
+**原始现状**：仓库里没有任何 QA 评测集、检索指标脚本或回归基线。224 例单测全部是"管线不崩"的结构性测试，没有一条断言"这个问题能召回正确的段落"。
 
 **为什么卡住别的事**：
 - `rag/config.py:190-192` 的注释自己写着 `BM25_MIN_SCORE` "此下限基本不起过滤作用；重建索引后需按实际分布重新标定" —— 没有评估集就无法标定。

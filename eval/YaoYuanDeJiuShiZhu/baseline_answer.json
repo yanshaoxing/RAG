@@ -1,0 +1,226 @@
+{
+  "corpus": "YaoYuanDeJiuShiZhu",
+  "qa_path": "eval/YaoYuanDeJiuShiZhu/qa.jsonl",
+  "n": 12,
+  "config": {
+    "REWRITE_ENABLED": true,
+    "DECOMPOSE_ENABLED": true,
+    "RERANK_ENABLED": true,
+    "GRAPH_ENABLED": true,
+    "SUMMARY_TREE_ENABLED": true,
+    "RETRIEVAL_TOP_K": 30,
+    "RRF_K": 60.0,
+    "RERANK_CANDIDATE_POOL_SIZE": 20,
+    "GAP_THRESHOLD": 0.2,
+    "SUMMARY_REDUNDANCY_THRESHOLD": 0.5
+  },
+  "aggregate": {
+    "overall": {
+      "n": 12,
+      "faithfulness": 5.0,
+      "citation": 5.0,
+      "completeness": 5.0,
+      "point_hit_rate": 1.0
+    },
+    "by_type": {
+      "cross": {
+        "n": 2,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      },
+      "fact": {
+        "n": 5,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      },
+      "macro": {
+        "n": 2,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      },
+      "relation": {
+        "n": 3,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      }
+    }
+  },
+  "per_question": [
+    {
+      "id": "y01",
+      "type": "fact",
+      "question": "芮小丹的母亲经营的是一家什么店？叫什么名字？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第2节的内容：\n\n芮小丹的母亲经营的是一家**中餐馆**，名字叫\"**紫竹园酒店**\"。\n\n原文引用如下：“芮小丹的母亲经营的‘紫竹园酒店’就在美茵河南岸，这是一家店面不大的中餐馆……\"（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章，小节：2）",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 2,
+        "num_points": 2,
+        "reason": "回答准确无误地涵盖了所有标准答案要点，并提供了完整的引用信息。"
+      }
+    },
+    {
+      "id": "y02",
+      "type": "fact",
+      "question": "丁元英是哪一年考入清华大学的？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第2节中肖亚文提供的个人简历记载：\n\n“丁元英，男，1959年出生……**1978年考入清华大学**。”\n\n因此，丁元英是**1978年**考入清华大学的。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 1,
+        "num_points": 1,
+        "reason": "回答准确无误，引用了指定资料并完整覆盖了唯一标准答案要点。"
+      }
+    },
+    {
+      "id": "y03",
+      "type": "fact",
+      "question": "私募基金的清算分红定在什么时间、什么地点？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第2节的内容，肖亚文提到：“私募基金清算分红的日期已经确定了，6月15日在柏林”。\n\n因此，私募基金的清算分红定在**6月15日**，地点是**柏林**。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 2,
+        "num_points": 2,
+        "reason": "回答准确匹配两个标准答案要点，且引用来源明确可信。"
+      }
+    },
+    {
+      "id": "y04",
+      "type": "fact",
+      "question": "肖亚文解释的私募基金是什么意思？丁总募集的资金来自哪里、针对哪个市场？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第3节的内容，肖亚文对私募基金的解释及相关资金情况如下：\n\n**1. 私募基金的含义**\n肖亚文表示：“还没立法，怎么违法？私募基金按我理解就是没有经过注册的私人代客理财，性质和信托差不多。”她进一步解释道：“简单地说就是你的资本，我的头脑，大家一起在股市上捞钱，包你只赚不赔。”（来源：文件 `YaoYuanDeJiuShiZhu-Chapter 1.txt`，章节 `第一章`，小节 `3`）\n\n**2. 资金来源与针对市场**\n关于资金的来源和投向，肖亚文明确指出：“丁总募集的资金全部来自德国，但完全针对中国股市”。（来源：文件 `YaoYuanDeJiuShiZhu-Chapter 1.txt`，章节 `第一章`，小节 `3`）",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 3,
+        "num_points": 3,
+        "reason": "回答完全忠实于标准答案要点，准确引用了文件内容，且覆盖全部三个要点。"
+      }
+    },
+    {
+      "id": "y05",
+      "type": "fact",
+      "question": "芮小丹打算把在古城租房子的具体事务交给谁去办？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第2节的内容，芮小丹打算把在古城租房子的具体事务交给**欧阳雪**去办。\n\n原文如下：\n> “这样，我给欧阳雪打个电话，房子的事让她去办，具体细节让她直接和你电话联系，以后的事就交给我了。”（出自文件：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章，小节：2）",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 1,
+        "num_points": 1,
+        "reason": "回答准确无误，完全符合标准答案要点，并提供了具体出处和原文支持。"
+      }
+    },
+    {
+      "id": "y06",
+      "type": "relation",
+      "question": "芮小丹和肖亚文是什么关系？",
+      "answer": "根据提供的参考资料，芮小丹和肖亚文是**朋友**关系，且肖亚文自认为两人是“最好的朋友”。\n\n具体依据如下：\n1.  **相识背景**：资料中提到“咱俩从警官大学认识”（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，section: 第一章，subsection: 1）。\n2.  **关系定性**：在对话中，芮小丹直接定义为“最好的朋友”，肖亚文对此表示认同，说“有你这个定性我就踏实了”（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，section: 第一章，subsection: 1）。\n3.  **互动细节**：两人在法兰克福机场见面时“激动地拥抱了一下”，并在酒店里与芮母一起“其乐融融地照起相来”，其中更多的是两人的合影（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，section: 第一章，subsection: 2）。\n4.  **相互评价**：肖亚文称芮小丹办事“得体、自然”，并说“咱们是朋友，你就给我当回使唤丫头”；芮小丹则评价肖亚文“老到”、“白领就是白领，四面动机，八面周到”（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，section: 第一章，subsection: 2）。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 2,
+        "num_points": 2,
+        "reason": "回答忠实于标准答案要点，引用准确且完整覆盖了两条要点，并提供了充分的文献依据。"
+      }
+    },
+    {
+      "id": "y07",
+      "type": "relation",
+      "question": "肖亚文和丁元英之间是什么关系？",
+      "answer": "根据提供的参考资料，肖亚文和丁元英之间的关系如下：\n\n1.  **助理与老板（雇佣关系）**：\n    在资料中，肖亚文明确提到：“我给**丁总**当了一年助理”。这表明两人曾是上下级的雇佣关系，肖亚文是丁元英的助理。\n    *   引用原文：“我给丁总当了一年助理……”（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章 subsection: 2）\n\n2.  **前同事/熟人（非朋友）**：\n    随着私募基金解散，两人的工作关系已经结束。肖亚文认为他们“根本不是一种人”，无法成为真正的朋友，但希望能保持联系，将其视为“认识、熟人、够得上说话”的关系。\n    *   引用原文：“你在私募基金解散以后还能跟他保持联系……‘朋友？不可能。认识、熟人、够得上说话，这就已经不错了。咱跟人家根本不是一种人，凭什么跟人家成朋友？’\"（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章 subsection: 2）\n\n3.  **仰慕者与评价者**：\n    肖亚文对丁元英的评价极高，认为他思维独特，甚至“不是人”，而是“魔”或“鬼”。她认为认识丁元英能让她“思考、觉悟”，并为此不惜花费巨资（房租和机票）来维持这段关系。\n    *   引用原文：“总之我没见过这样的人，或者说他根本就不是人……是魔、是鬼都可以，就是不是人。”以及“认识这个人就是开了一扇窗户，就能看到不一样的东西，听到不一样的声音，能让你思考、觉悟，这已经够了。”（文件名称：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章 subsection: 2）\n\n综上所述，肖亚文曾是丁元英的**助理**，在私募基金解散后，两人不再是雇佣关系，肖亚文视其为**极其重要且独特的熟人**，虽自认无法与其成为朋友，但仍极力希望保持联系以获取精神上的启发和未来的机会。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 1,
+        "num_points": 1,
+        "reason": "回答忠实于标准答案要点，引用准确，完整覆盖了所有要点"
+      }
+    },
+    {
+      "id": "y08",
+      "type": "relation",
+      "question": "张慧敏是谁？她和芮小丹是什么关系？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第2节的内容：\n\n**张慧敏是芮小丹的母亲。**\n\n文中明确记载：“芮小丹的母亲张慧敏50多岁，是那种干练而有修养的妇女……\"以及“肖亚文人还没下车就亲热地喊道：‘张姨您好！’\"。\n\n此外，资料还提到她经营的“紫竹园酒店”就在美茵河南岸，是一家店面不大的中餐馆。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 2,
+        "num_points": 2,
+        "reason": "回答准确无误地涵盖了两个标准答案要点，并正确引用了文件名和章节内容。"
+      }
+    },
+    {
+      "id": "y09",
+      "type": "cross",
+      "question": "肖亚文特意自费飞到法兰克福找芮小丹，到底是为了托付什么事？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章的内容，肖亚文自费专程飞往法兰克福找芮小丹，是为了**托付她在古城为丁元英租一套房子，并对其进行照应**。\n\n具体细节如下：\n\n1.  **任务背景与目的**：\n    肖亚文的老板（丁元英）交代差使，想找个离北京远、没有熟人打扰的地方清静一下。肖亚文认为古城最合适，因为芮小丹“办事有分寸，能有个照应”。\n    > 引用原文：“老板交代个差使，让找个离北京远点的地方租套房子，意思是没有熟人打扰，他想一个人清静清静。我想来想去还是把他放在古城比较合适，你办事有分寸，能有个照应。”（文件：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章 subsection: 2）\n\n2.  **深层动机**：\n    肖亚文希望借此机会在私募基金解散后，通过芮小丹的“地主之宜”与丁元英保持联系，将这种关系转化为一种人情往来，而非雇佣关系。\n    > 引用原文：“不能让这条线断了，得有个什么事还能牵着。你在古城尽点地主之宜顺理成章，你们不是雇佣关系，关照多少都是人情……你关照他，人情是记在我账上，关照他就是给我帮忙。”（文件：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章 subsection: 2）\n\n3.  **担保性质**：\n    肖亚文表示这次拜访本身就含有“政审担保”，并提供了丁元英的身份证复印件和简历给芮小丹。\n    > 引用原文：“我来找你，本身就含有政审担保。”然后她从包里拿出一张身份证复印件和一张个人简历递过去说：“这是这个人的情况。”（文件：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章 subsection: 2）\n\n4.  **费用说明**：\n    肖亚文明确表示此次行程是自费，包括天津预付房租和往返机票共两万多元，她不想让丁元英察觉出刻意的成分。\n    > 引用原文：“我这趟是专程来见你的，自费。”以及“这么一折腾，天津的预付房租和这次的往返机票一共两万多元哪，全得我自己出……这事得自然，如果让他察觉到有刻意的成分，那我就丢人了。”（文件：YaoYuanDeJiuShiZhu-Chapter 1.txt，章节：第一章 subsection: 1 & 2）",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 3,
+        "num_points": 3,
+        "reason": "回答完全忠实于标准答案要点，引用准确，覆盖全部三点，且标注了具体文件和章节"
+      }
+    },
+    {
+      "id": "y10",
+      "type": "cross",
+      "question": "芮小丹对自己今后的职业和人生有什么打算？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第3节的内容，芮小丹对自己今后的职业和人生打算如下：\n\n**1. 关于刑警工作的期限：**\n芮小丹表示不敢一直干下去，她认为“女人干刑警真不行，体能和思维都跟不上”，并坦言：“你还想撑多久，敢撑到30岁吗？”她回答：“不敢，30岁再申请留学就很难通过审批了。”因此，她计划“再干两年”。\n\n**2. 关于学业规划：**\n芮小丹计划在结束刑警工作后，“到法兰克福大学读个学位”。她提到选择这里的原因是“这边吃住都省钱”。\n\n**3. 关于未来职业方向：**\n芮小丹打算回国后“当个律师”。她解释道：“我除了法律没别的技能，只能在法律这行挣口饭吃。”虽然她对这一行并不完全自信，认为“律师对逻辑思维和综合知识的要求更高，填不饱肚子的律师多着呢”，但她仍决定“走着说着吧”。\n\n此外，在另一段对话中（第一章第3节），当肖亚文问她拿到律师执业证后的打算时，芮小丹补充说：“我只是为再就业储备条件，现在还没被淘汰呢。”这表明她将考取律师证视为一种职业保障或退路。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 3,
+        "num_points": 3,
+        "reason": "回答准确覆盖所有标准答案要点，且引用来源明确，内容无编造或矛盾"
+      }
+    },
+    {
+      "id": "y11",
+      "type": "macro",
+      "question": "肖亚文是怎么评价丁元英这个人的？",
+      "answer": "根据提供的参考资料，肖亚文对丁元英的评价主要集中在以下几个方面：\n\n1.  **思维异于常人，像魔或鬼**\n    肖亚文认为丁元英“跟正常人的思维颠倒了，说鬼话，办鬼事，倒行逆施，但是还有道理，像魔”。她提到柏林有个居士称他为“极品混混”，并对此表示认同（“也是”）。在芮小丹质疑时，肖亚文明确表示：“是魔、是鬼都可以，就是不是人。”\n\n2.  **超越普通人的层次**\n    肖亚文将丁元英与普通人区分开来，她说：“我想，或多或少、直接间接，我都见过，但他们都是人，想的、干的都是人的那点事。丁元英不同……\"她认为丁元英是“会赚钱的人、地位高的人、有思想的人、有学问的人”中独特的存在，甚至感叹自己“以我的智力，我理解不了这种人”。\n\n3.  **认识他的意义**\n    对于为何要与丁元英保持联系，肖亚文认为：“认识这个人就是开了一扇窗户，就能看到不一样的东西，听到不一样的声音，能让你思考、觉悟，这已经够了。”她强调虽然两人“根本不是一种人”，无法成为朋友，但这个人很重要。\n\n4.  **警告芮小丹不要动心思**\n    作为朋友，肖亚文给芮小丹的忠告是：“当你觉得这个人很特别的时候，千万别对这种人动心思，一旦动了那种心思你就算把地狱之门打开了，除了自己受折磨不会有第二种结果。”\n\n**引用原文及文件出处：**\n*   “丁元英不同，他跟正常人的思维颠倒了，说鬼话，办鬼事，倒行逆施，但是还有道理，像魔，柏林有个居士说他是极品混混。” —— 《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章 subsection 2\n*   “咱跟人家根本不是一种人，凭什么跟人家成朋友？” —— 《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章 subsection 2\n*   “认识这个人就是开了一扇窗户，就能看到不一样的东西，听到不一样的声音，能让你思考、觉悟，这已经够了。” —— 《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章 subsection 2\n*   “总之我没见过这样的人，或者说他根本就不是人……是魔、是鬼都可以，就是不是人。” —— 《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章 subsection 2\n*   “以我的智力，我理解不了这种人。” —— 《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章 subsection 3\n*   “当你觉得这个人很特别的时候，千万别对这种人动心思，一旦动了那种心思你就算把地狱之门打开了，除了自己受折磨不会有第二种结果。” —— 《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章 subsection 2",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 4,
+        "num_points": 4,
+        "reason": "回答忠实于标准答案要点，引用准确且完整覆盖所有要点，出处标注清晰"
+      }
+    },
+    {
+      "id": "y12",
+      "type": "macro",
+      "question": "肖亚文为什么反复叮嘱芮小丹不要对丁元英动心思？",
+      "answer": "根据参考资料《YaoYuanDeJiuShiZhu-Chapter 1.txt》第一章第2节的内容，肖亚文反复叮嘱芮小丹不要对丁元英动心思的原因如下：\n\n1.  **后果极其严重**：肖亚文明确警告说：“当你觉得这个人很特别的时候，千万别对这种人动心思，一旦动了那种心思你就算把地狱之门打开了，除了自己受折磨不会有第二种结果。”\n2.  **对方性格极端且非人**：肖亚文认为丁元英“跟正常人的思维颠倒了，说鬼话，办鬼事，倒行逆施”，形容他“是魔、是鬼都可以，就是不是人”。她甚至提到这种“不是人的人”连女人都受不了，其前妻只跟他过了半年就离婚了，说他“不是人”。\n3.  **自找的悲剧**：肖亚文强调：“我说这话你可以不当回事，但是如果真的发生了，那是你自找的，别怪我没提醒过你。”\n\n综上所述，肖亚文认为丁元英是一个思维颠倒、像魔一样难以用常理揣度的人，与他产生情感纠葛只会给芮小丹带来巨大的痛苦和折磨。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 3,
+        "num_points": 3,
+        "reason": "回答完全忠实于标准答案要点，准确引用资料并覆盖全部三点"
+      }
+    }
+  ]
+}

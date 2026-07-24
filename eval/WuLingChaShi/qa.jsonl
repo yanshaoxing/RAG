@@ -1,0 +1,7 @@
+{"id": "w01", "type": "fact", "question": "沈青禾是什么时候、因为什么回到雾岭村的？", "gold_chunk_ids": ["880d42b9-547a-43fe-b197-da3b6406ba24"], "gold_answer_points": ["三年前从省城辞职回村", "接手了外婆留下的茶园和快倒闭的云岭茶社"]}
+{"id": "w02", "type": "fact", "question": "顾明澜第一次上门提出的投资条件是什么？", "gold_chunk_ids": ["a55a6347-6431-458f-a738-2e1dc51c0ee2"], "gold_answer_points": ["投三百万", "条件是上机器、扩产十倍", "两年内做成全省连锁品牌"]}
+{"id": "w03", "type": "relation", "question": "陈伯是谁？他有什么本事？", "gold_chunk_ids": ["880d42b9-547a-43fe-b197-da3b6406ba24"], "gold_answer_points": ["云岭茶社的炒茶老师傅", "做了四十年茶，手工炒茶手艺出名"]}
+{"id": "w04", "type": "relation", "question": "陈伯收下的第一个徒弟是谁？", "gold_chunk_ids": ["db6dbd98-ad59-4f64-8fe9-22d67346ec99"], "gold_answer_points": ["村里高中毕业没走出去的姑娘林小满"]}
+{"id": "w05", "type": "cross", "question": "顾明澜前后两次提出的合作方案有什么根本不同？", "gold_chunk_ids": ["a55a6347-6431-458f-a738-2e1dc51c0ee2", "db6dbd98-ad59-4f64-8fe9-22d67346ec99"], "gold_answer_points": ["第一次投三百万、上机器扩产十倍做连锁", "第二次只投一百万、不上机器不扩产", "第二次改做手工茶高端限量定制、传承手艺"]}
+{"id": "w06", "type": "cross", "question": "是什么让顾明澜改变了最初的投资想法？", "gold_chunk_ids": ["a55a6347-6431-458f-a738-2e1dc51c0ee2", "db6dbd98-ad59-4f64-8fe9-22d67346ec99"], "gold_answer_points": ["跟着陈伯进炒茶房看老人赤手在两百度铁锅里翻叶子看了两小时", "明白有些东西的价值恰恰在于它做不快"]}
+{"id": "w07", "type": "macro", "question": "云岭茶社最后走上了一条怎样的新路，结果如何？", "gold_chunk_ids": ["db6dbd98-ad59-4f64-8fe9-22d67346ec99"], "gold_answer_points": ["做手工茶高端限量定制", "陈伯带徒弟传承手艺", "第一批定制茶在省城卖到脱销，订单排到第二年清明"]}

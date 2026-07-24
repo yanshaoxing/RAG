@@ -1,0 +1,181 @@
+{
+  "corpus": "WuLingChaShi",
+  "qa_path": "eval/WuLingChaShi/qa.jsonl",
+  "n": 7,
+  "ks": [
+    3,
+    5,
+    10
+  ],
+  "config": {
+    "REWRITE_ENABLED": true,
+    "DECOMPOSE_ENABLED": true,
+    "RERANK_ENABLED": true,
+    "GRAPH_ENABLED": true,
+    "SUMMARY_TREE_ENABLED": true,
+    "RETRIEVAL_TOP_K": 30,
+    "RRF_K": 60.0,
+    "RERANK_CANDIDATE_POOL_SIZE": 20,
+    "GAP_THRESHOLD": 0.2,
+    "SUMMARY_REDUNDANCY_THRESHOLD": 0.5
+  },
+  "aggregate": {
+    "overall": {
+      "n": 7,
+      "recall": {
+        "3": 0.8571,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "mrr": 0.8857,
+      "hit_rate": 1.0,
+      "mean_first_hit_rank": 1.57
+    },
+    "by_type": {
+      "cross": {
+        "n": 2,
+        "recall": {
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 1.0
+      },
+      "fact": {
+        "n": 2,
+        "recall": {
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 1.0
+      },
+      "macro": {
+        "n": 1,
+        "recall": {
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 1.0
+      },
+      "relation": {
+        "n": 2,
+        "recall": {
+          "3": 0.5,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 0.6,
+        "hit_rate": 1.0,
+        "mean_first_hit_rank": 3.0
+      }
+    }
+  },
+  "per_question": [
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "w01",
+      "type": "fact",
+      "question": "沈青禾是什么时候、因为什么回到雾岭村的？",
+      "n_retrieved": 7
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "w02",
+      "type": "fact",
+      "question": "顾明澜第一次上门提出的投资条件是什么？",
+      "n_retrieved": 7
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 0.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 0.2,
+      "first_hit_rank": 5,
+      "id": "w03",
+      "type": "relation",
+      "question": "陈伯是谁？他有什么本事？",
+      "n_retrieved": 7
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "w04",
+      "type": "relation",
+      "question": "陈伯收下的第一个徒弟是谁？",
+      "n_retrieved": 7
+    },
+    {
+      "n_gold": 2,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "w05",
+      "type": "cross",
+      "question": "顾明澜前后两次提出的合作方案有什么根本不同？",
+      "n_retrieved": 7
+    },
+    {
+      "n_gold": 2,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "w06",
+      "type": "cross",
+      "question": "是什么让顾明澜改变了最初的投资想法？",
+      "n_retrieved": 7
+    },
+    {
+      "n_gold": 1,
+      "recall": {
+        "3": 1.0,
+        "5": 1.0,
+        "10": 1.0
+      },
+      "rr": 1.0,
+      "first_hit_rank": 1,
+      "id": "w07",
+      "type": "macro",
+      "question": "云岭茶社最后走上了一条怎样的新路，结果如何？",
+      "n_retrieved": 7
+    }
+  ]
+}

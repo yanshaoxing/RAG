@@ -1,0 +1,12 @@
+{"id": "y01", "type": "fact", "question": "芮小丹的母亲经营的是一家什么店？叫什么名字？", "gold_chunk_ids": ["84bb1911-12d3-44d9-b94e-7ba15f252722"], "gold_answer_points": ["母亲张慧敏经营紫竹园酒店", "是美茵河南岸一家店面不大的中餐馆"]}
+{"id": "y02", "type": "fact", "question": "丁元英是哪一年考入清华大学的？", "gold_chunk_ids": ["a5c3f79f-5762-4d8c-8c76-17884c3d0418"], "gold_answer_points": ["1978年考入清华大学"]}
+{"id": "y03", "type": "fact", "question": "私募基金的清算分红定在什么时间、什么地点？", "gold_chunk_ids": ["b1e9bb17-b0a6-4680-906e-3e032f1f7156"], "gold_answer_points": ["6月15日", "在柏林"]}
+{"id": "y04", "type": "fact", "question": "肖亚文解释的私募基金是什么意思？丁总募集的资金来自哪里、针对哪个市场？", "gold_chunk_ids": ["dab3c8ce-2205-4b45-8b9f-1f7701d5f3c1"], "gold_answer_points": ["没有经过注册的私人代客理财，性质和信托差不多", "资金全部来自德国", "针对中国股市"]}
+{"id": "y05", "type": "fact", "question": "芮小丹打算把在古城租房子的具体事务交给谁去办？", "gold_chunk_ids": ["b1e9bb17-b0a6-4680-906e-3e032f1f7156"], "gold_answer_points": ["交给欧阳雪去办"]}
+{"id": "y06", "type": "relation", "question": "芮小丹和肖亚文是什么关系？", "gold_chunk_ids": ["15358f8a-0858-4502-8453-60b9daedb7b5"], "gold_answer_points": ["从警官大学认识", "是最好的朋友"]}
+{"id": "y07", "type": "relation", "question": "肖亚文和丁元英之间是什么关系？", "gold_chunk_ids": ["a5c3f79f-5762-4d8c-8c76-17884c3d0418"], "gold_answer_points": ["肖亚文给丁元英（丁总）当了一年助理"]}
+{"id": "y08", "type": "relation", "question": "张慧敏是谁？她和芮小丹是什么关系？", "gold_chunk_ids": ["84bb1911-12d3-44d9-b94e-7ba15f252722"], "gold_answer_points": ["张慧敏是芮小丹的母亲", "50多岁，经营紫竹园酒店"]}
+{"id": "y09", "type": "cross", "question": "肖亚文特意自费飞到法兰克福找芮小丹，到底是为了托付什么事？", "gold_chunk_ids": ["84bb1911-12d3-44d9-b94e-7ba15f252722", "a5c3f79f-5762-4d8c-8c76-17884c3d0418", "452998b8-43ce-4bf0-b911-45178b1848b0"], "gold_answer_points": ["请芮小丹在古城帮忙给丁元英租套房子", "让芮小丹就近照应丁元英", "目的是私募基金解散后不让和丁元英的这条线断掉"]}
+{"id": "y10", "type": "cross", "question": "芮小丹对自己今后的职业和人生有什么打算？", "gold_chunk_ids": ["dab3c8ce-2205-4b45-8b9f-1f7701d5f3c1", "73045231-3dbe-4570-aa8b-2c97cb660fcb"], "gold_answer_points": ["已经拿到律师执业证", "打算再干两年警察后到法兰克福大学读学位", "将来回国当律师"]}
+{"id": "y11", "type": "macro", "question": "肖亚文是怎么评价丁元英这个人的？", "gold_chunk_ids": ["a5c3f79f-5762-4d8c-8c76-17884c3d0418", "452998b8-43ce-4bf0-b911-45178b1848b0", "73045231-3dbe-4570-aa8b-2c97cb660fcb"], "gold_answer_points": ["说他不是人，是魔是鬼", "思维和正常人颠倒、倒行逆施却有道理", "柏林居士说他是极品混混", "以肖亚文的智力理解不了这种人"]}
+{"id": "y12", "type": "macro", "question": "肖亚文为什么反复叮嘱芮小丹不要对丁元英动心思？", "gold_chunk_ids": ["b1e9bb17-b0a6-4680-906e-3e032f1f7156", "028716a5-a4b5-4b69-b8cf-305d90e8970e"], "gold_answer_points": ["觉得他很特别就动心思等于打开地狱之门", "只会让自己受折磨", "他妻子只跟他过了半年就离婚，说他不是人"]}

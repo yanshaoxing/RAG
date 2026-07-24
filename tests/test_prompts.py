@@ -20,6 +20,9 @@ _TEMPLATE_KWARGS = {
     "MERGE_PROMPT": {"existing_desc": "旧", "new_desc": "新"},
     "ENTITY_EXTRACT_FROM_QUERY_PROMPT": {"query": "问"},
     "QA_TEMPLATE_STR": {"context_str": "资料", "query_str": "问"},
+    "EVAL_JUDGE_TEMPLATE_STR": {
+        "question": "问", "num_points": 2, "gold_points": "- 要点", "answer": "答",
+    },
 }
 
 

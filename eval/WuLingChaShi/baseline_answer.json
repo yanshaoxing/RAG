@@ -1,0 +1,156 @@
+{
+  "corpus": "WuLingChaShi",
+  "qa_path": "eval/WuLingChaShi/qa.jsonl",
+  "n": 7,
+  "config": {
+    "REWRITE_ENABLED": true,
+    "DECOMPOSE_ENABLED": true,
+    "RERANK_ENABLED": true,
+    "GRAPH_ENABLED": true,
+    "SUMMARY_TREE_ENABLED": true,
+    "RETRIEVAL_TOP_K": 30,
+    "RRF_K": 60.0,
+    "RERANK_CANDIDATE_POOL_SIZE": 20,
+    "GAP_THRESHOLD": 0.2,
+    "SUMMARY_REDUNDANCY_THRESHOLD": 0.5
+  },
+  "aggregate": {
+    "overall": {
+      "n": 7,
+      "faithfulness": 5.0,
+      "citation": 5.0,
+      "completeness": 5.0,
+      "point_hit_rate": 1.0
+    },
+    "by_type": {
+      "cross": {
+        "n": 2,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      },
+      "fact": {
+        "n": 2,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      },
+      "macro": {
+        "n": 1,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      },
+      "relation": {
+        "n": 2,
+        "faithfulness": 5.0,
+        "citation": 5.0,
+        "completeness": 5.0,
+        "point_hit_rate": 1.0
+      }
+    }
+  },
+  "per_question": [
+    {
+      "id": "w01",
+      "type": "fact",
+      "question": "沈青禾是什么时候、因为什么回到雾岭村的？",
+      "answer": "根据参考资料《WuLingChaShi.txt》第一章“春茶”中的记载：\n\n沈青禾是**三年前**从省城辞职回到雾岭村的。她回村的原因是**接手了外婆留下的茶园和这间快要倒闭的茶社**。\n\n原文引用如下：\n> “她是三年前从省城辞职回村的，接手了外婆留下的茶园和这间快要倒闭的茶社。”（出自 file_name: WuLingChaShi.txt, section: 第一章 春茶）",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 2,
+        "num_points": 2,
+        "reason": "回答准确无误地覆盖了所有标准答案要点，并正确引用了文件名和章节，内容可信且完整。"
+      }
+    },
+    {
+      "id": "w02",
+      "type": "fact",
+      "question": "顾明澜第一次上门提出的投资条件是什么？",
+      "answer": "根据《WuLingChaShi.txt》第二章“来客”中的记载，顾明澜第一次上门提出的投资条件是：\n\n“我想投你三百万”，条件是“上机器，扩产十倍，两年内做成全省的连锁品牌”。",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 3,
+        "num_points": 3,
+        "reason": "回答准确无误地复述了三个标准答案要点，并明确引用了文件《WuLingChaShi.txt》第二章，来源清晰可信。"
+      }
+    },
+    {
+      "id": "w03",
+      "type": "relation",
+      "question": "陈伯是谁？他有什么本事？",
+      "answer": "根据提供的参考资料，关于陈伯的身份和本事如下：\n\n**1. 陈伯是谁？**\n陈伯是云岭茶社的一位老人。他在该茶社工作了四十年，是沈青禾外婆留下的茶园和茶社中的核心人物。\n*   **原文引用**：“陈伯已经在炒茶房里生好了火。老人做了四十年茶……\"（文件名称：WuLingChaShi.txt，章节：第一章 春茶）\n*   **原文引用**：“陈伯带六个徒弟，把手艺一代代传下去。”（文件名称：WuLingChaShi.txt，章节：第三章 新路）\n\n**2. 他有什么本事？**\n陈伯拥有精湛的手工制茶技艺，特别是擅长在极高温度的铁锅中通过双手控制火候来炒茶，他认为这是机器无法替代的“茶魂”。此外，他还具备传授手艺的能力，开始招收徒弟传承技艺。\n*   **原文引用**：“看老人赤手在两百度的铁锅里翻叶子，看了整整两个小时……”（文件名称：WuLingChaShi.txt，章节：第二章 来客）\n*   **原文引用**：\"‘机器炒的茶，火候是死的，’陈伯说，‘咱们的茶魂就在这双手上。’\"（文件名称：WuLingChaShi.txt，章节：第二章 来客）\n*   **原文引用**：“陈伯收下了第一个徒弟——村里高中毕业没走出去的姑娘林小满。”（文件名称：WuLingChaShi.txt，章节：第三章 新路）",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 2,
+        "num_points": 2,
+        "reason": "回答忠实于原文，引用准确，完整覆盖两条标准答案要点"
+      }
+    },
+    {
+      "id": "w04",
+      "type": "relation",
+      "question": "陈伯收下的第一个徒弟是谁？",
+      "answer": "根据参考资料《WuLingChaShi.txt》中“第三章 新路”的内容，陈伯收下的第一个徒弟是**林小满**。\n\n原文记载：“当年秋天，云岭茶社的第一批定制茶在省城卖到脱销，订单排到了第二年清明。陈伯收下了第一个徒弟——村里高中毕业没走出去的姑娘**林小满**。”",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 1,
+        "num_points": 1,
+        "reason": "回答准确无误，引用了正确文件和章节，并完整覆盖了唯一一条标准答案要点。"
+      }
+    },
+    {
+      "id": "w05",
+      "type": "cross",
+      "question": "顾明澜前后两次提出的合作方案有什么根本不同？",
+      "answer": "根据参考资料《WuLingChaShi.txt》中的内容，顾明澜前后两次提出的合作方案在**投资金额、生产方式及发展路径**上存在根本不同：\n\n1.  **第一次方案（工业化扩张）：**\n    *   **文件来源：** 《WuLingChaShi.txt》第二章 来客\n    *   **具体内容：** “我想投你三百万……条件是上机器，扩产十倍，两年内做成全省的连锁品牌。”\n    *   **核心特点：** 追求规模效应，通过引入机器和扩大产量来实现快速连锁化。\n\n2.  **第二次方案（高端定制与传承）：**\n    *   **文件来源：** 《WuLingChaShi.txt》第三章 新路\n    *   **具体内容：** “清源资本只投一百万，不上机器，不扩产量，转而做高端定制——手工茶限量发售，陈伯带六个徒弟，把手艺一代代传下去。”\n    *   **核心特点：** 放弃规模化，坚持手工制作，走限量高端路线，并注重技艺传承。\n\n**根本不同总结：**\n第一次方案主张\"**上机器、扩产量**\"以打造连锁品牌；而第二次方案则明确\"**不上机器，不扩产量**\"，转而专注于“手工茶限量发售”和手艺传承。正如顾明澜在第二次方案中所述：“我原以为农业就是规模……有些东西的价值恰恰在于它做不快。”",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 3,
+        "num_points": 3,
+        "reason": "回答准确对应所有三个标准答案要点，引用文件明确，内容无编造或矛盾。"
+      }
+    },
+    {
+      "id": "w06",
+      "type": "cross",
+      "question": "是什么让顾明澜改变了最初的投资想法？",
+      "answer": "根据参考资料，顾明澜改变最初投资想法的原因如下：\n\n1.  **亲眼目睹手工制茶的过程**：在第二章中提到，顾明澜在村里住了三天后，“第三天清晨，他跟着陈伯进了炒茶房，看老人赤手在两百度的铁锅里翻叶子，看了整整两个小时，一句话也没说”。\n2.  **领悟到“慢”的价值**：在第三章中，顾明澜对沈青禾坦言：“我原以为农业就是规模，”随后解释道，“陈伯的手让我明白，有些东西的价值恰恰在于它做不快。”\n\n正是通过观察陈伯（资料中称为“陈伯”）用双手在两百度铁锅中炒茶的过程，顾明澜意识到传统手工技艺的独特价值，从而放弃了最初“上机器、扩产十倍”的工业化方案，转而提出了“只投一百万，不上机器，不扩产量，转而做高端定制”的新合作方案。\n\n*引用来源：file_name: WuLingChaShi.txt, section: 第二章 来客 / 第三章 新路*",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 2,
+        "num_points": 2,
+        "reason": "回答准确对应两个标准答案要点，且引用来源明确，内容无编造或偏差。"
+      }
+    },
+    {
+      "id": "w07",
+      "type": "macro",
+      "question": "云岭茶社最后走上了一条怎样的新路，结果如何？",
+      "answer": "根据参考资料《WuLingChaShi.txt》第三章“新路”的内容，云岭茶社最后走上的新路及结果如下：\n\n**1. 走上的新路：**\n五月初，在清源资本合伙人顾明澜带来的新合作方案下，云岭茶社放弃了机器化和大规模扩产，转而采取以下策略：\n*   **投资模式改变**：清源资本只投一百万，“不上机器，不扩产量”。\n*   **业务方向转型**：“转而做高端定制——手工茶限量发售”。\n*   **传承计划**：“陈伯带六个徒弟，把手艺一代代传下去”。\n正如顾明澜所言：“有些东西的价值恰恰在于它做不快。”（来源：《WuLingChaShi.txt》，第三章 新路）\n\n**2. 最终结果：**\n*   **市场反响**：“当年秋天，云岭茶社的第一批定制茶在省城卖到脱销，订单排到了第二年清明。”（来源：《WuLingChaShi.txt》，第三章 新路）\n*   **人才传承**：“陈伯收下了第一个徒弟——村里高中毕业没走出去的姑娘林小满。”（来源：《WuLingChaShi.txt》，第三章 新路）\n*   **整体状况**：虽然雾岭村的雾依旧，但“山下的路，比从前宽了”，意味着茶社走出了困境并获得了新生。（来源：《WuLingChaShi.txt》，第三章 新路）",
+      "scores": {
+        "faithfulness": 5,
+        "citation": 5,
+        "completeness": 5,
+        "hit_points": 3,
+        "num_points": 3,
+        "reason": "回答完全忠实于标准答案要点，引用准确，覆盖全部三点且无编造。"
+      }
+    }
+  ]
+}
