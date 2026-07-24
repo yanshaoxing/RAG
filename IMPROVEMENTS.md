@@ -180,7 +180,15 @@ rag/utils/text.py            rag/logging_utils.py
 
 ---
 
-## P1-6 「真流式」实际上没有生效，被上游合成器阻断
+## P1-6 「真流式」实际上没有生效，被上游合成器阻断 —— ✅ 已修复
+
+**修复**（commit 待记）：`GraphAugmentedQueryEngine` 覆盖 `_query` + `synthesize`，流式时绕开 llama_index 的 Refine 合成器，直接用 `QA_TEMPLATE` 拼接参考资料后调 `Settings.llm.stream_chat()` 逐 token 产出；非流式仍走父类成熟的 compact。因 `ALIYUN_CONTEXT_WINDOW` 已如实申报（1M，见 P1-7），单本查询的参考资料必落入单块，compact 本就等价于「一次 QA 调用」，故行为与之一致、只是真正逐 token。实测 `query()` 从「阻塞 7.5s、response_gen 只 yield 1 次」变为「检索 5.7s 返回、迭代 31 次、首块 1.3s、生成在迭代期间」；批次 1 的耗时计量里「步骤 4 回答生成」从 `0.00s` 变为真实的 `1.66s`。新增 `tests/test_query_engine.py`（6 例）锁定逐 token 行为与 `_query` 分发路径。
+
+> 关键坑：父类 `RetrieverQueryEngine._query` 直接调 `self._response_synthesizer.synthesize`，**绕过** `self.synthesize`，故必须同时覆盖 `_query` 让它经 `self.synthesize` 分发。
+
+---
+
+<details><summary>原始分析（保留备查）</summary>
 
 **现状**：README 与 CLAUDE.md 都写着"SSE 逐 token 渲染"，但**端到端并没有实现**。实测（批次 1 的耗时计量直接暴露了它——"步骤 4 回答生成: 0.00s"）：
 
@@ -204,14 +212,9 @@ yield StructuredRefineResponse(answer=answer.strip(), query_satisfied=True)   # 
 
 上游是**有意为之**（注释说是为了与结构化输出行为一致）。我们这一侧的 `DavyLLM.stream_chat` 是真流式（`tests/test_llm_stream.py` 有断言），问题不在项目代码。
 
-**修复方向**（三选一，建议第 2 种）：
-1. 升级/更换 llama_index 版本 —— 上游注释表明是设计决定，未必会变；
-2. **绕开合成器**：入口层已经拿到 rerank 后的节点，直接用 `prompts.QA_TEMPLATE_STR` 拼上下文并调 `Settings.llm.stream_chat()`。QA 模板和节点都在我们手里，`compact` 模式在单块场景下本就等价于一次调用；
-3. 给 `Refine` 传自定义 `program_factory`，只重写 `stream_call` 让它逐 token yield。
+采用了方案 2（绕开合成器）。
 
-**顺带**：在修好之前，README / CLAUDE.md 的"真流式"表述已改为如实描述（`DavyLLM` 层是真流式，端到端被上游阻断）。
-
-**工作量**：方案 2 约半天（含单测）。
+</details>
 
 ---
 
@@ -223,7 +226,7 @@ yield StructuredRefineResponse(answer=answer.strip(), query_satisfied=True)   # 
 
 小语料（当前 8 个 chunk）不触发，所以此前一直没暴露——**正是批次 7 全书入库时必然踩到的坑**。
 
-**已落地**：`config.ALIYUN_CONTEXT_WINDOW`（32768）/ `ALIYUN_NUM_OUTPUT`（2048），`DavyLLM` 如实申报。⚠️ 取值是保守估计，**待按 qwen3.5-flash 的实际文档核准并记入 LLM.txt**。
+**已落地**：`config.ALIYUN_CONTEXT_WINDOW`（1048576 = 1M）/ `ALIYUN_NUM_OUTPUT`（8192），`DavyLLM` 如实申报。取值已按 `LLM.txt` 核准：qwen3.5-flash / qwen-flash 上下文均为 1M；`num_output` 是「为输出预留、从可用上下文扣除」的额度，按 QA 回答的合理上限取 8192（模型实际最大输出 32K~64K，但回答远短于此，预留过多只会无谓压缩可用上下文）。
 
 ---
 

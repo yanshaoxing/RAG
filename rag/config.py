@@ -121,11 +121,13 @@ ALIYUN_ENABLE_THINKING = _env_bool("RAG_ALIYUN_ENABLE_THINKING", False)
 # 上下文窗口与最大输出 —— 必须如实申报，否则 llama_index 按默认值 3900/256 处理。
 # 后果：合成器（CompactAndRefine）按可用上下文 repack 参考资料，窗口报小会把本可
 # 一次送入的上下文拆成多块 → 多轮 refine → 多次 LLM 调用（多花钱）、信息在
-# 逐轮改写中损耗（答案变差），且 Refine 循环会把上一轮的流式生成器消费成字符串
-# （真流式失效）。全书查询送入约 1 万字正文，按 3900 必然触发多轮。
-# 保守取值，实际以模型文档为准（LLM.txt 记录当前模型）。
-ALIYUN_CONTEXT_WINDOW = int(_env_str("RAG_ALIYUN_CONTEXT_WINDOW", "32768"))
-ALIYUN_NUM_OUTPUT = int(_env_str("RAG_ALIYUN_NUM_OUTPUT", "2048"))
+# 逐轮改写中损耗（答案变差）。全书查询送入约 1 万字正文，按 3900 必然触发多轮。
+# 取值来自 LLM.txt：qwen3.5-flash / qwen-flash 上下文均为 1M。
+# num_output 是"为输出预留的 token 数"（会从可用上下文中扣除），按 QA 回答的合理
+# 上限取 8192 即可——模型实际最大输出 32K~64K，但我们的回答远短于此，预留过多只是
+# 无谓压缩可用上下文。
+ALIYUN_CONTEXT_WINDOW = int(_env_str("RAG_ALIYUN_CONTEXT_WINDOW", "1048576"))
+ALIYUN_NUM_OUTPUT = int(_env_str("RAG_ALIYUN_NUM_OUTPUT", "8192"))
 
 # ============================================================
 # Embedding 模型

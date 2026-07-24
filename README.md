@@ -9,7 +9,7 @@
 - **查询分解**：复杂问题自动拆分为子查询并行检索，按名次 RRF 融合合并
 - **层次化摘要树**：L1 逐块 → L2 小节 → L3 章节 → L4 全书四级摘要，混入主索引解决"宏观问题查不到"；LLM 失败自动降级并显式标记
 - **知识图谱**：按节 LLM 抽取实体/关系 → 规则过滤 → 不同模型交叉校验 → 描述合并 → 别名归一化 → Kuzu 持久化；构建为有界流水线并发，SQLite 缓存支持断点续传
-- **流式输出**：`DavyLLM.stream_chat` 为 SSE 逐 token 真流式，增量剥离 `<think>` 思考块，断流未输出正文时自动整流重试。⚠️ **端到端暂未生效**：llama_index 的 `DefaultRefineProgram.stream_call` 会把整个流累积成字符串后只 yield 一次（上游有意为之），故当前是「等待生成完毕 → 全文一次性输出」，详见 `IMPROVEMENTS.md` 的 P1-6
+- **真流式输出**：SSE 逐 token 端到端流式，增量剥离 `<think>` 思考块，断流未输出正文时自动整流重试。`GraphAugmentedQueryEngine` 覆盖 `_query`+`synthesize`，流式时绕开 llama_index 的 Refine 合成器（其 `stream_call` 会累积整流后只 yield 一次），直接用 QA 模板拼接检索结果后调 `stream_chat` 逐 token 产出；非流式仍走成熟的 compact
 - **用量计量**：token 取自服务端 `usage`（计费同源，非本地估算），单列 reasoning token；CLI 与 UI 每次查询输出「耗时分解 + 各模型 token + 估算费用」
 - **工程化**：分阶段索引（`_DONE.json` 完成标记 + 原子写入）、embedding 分段断点续传、224 例离线单测（无需内网）
 
