@@ -129,6 +129,56 @@ def test_list_corpora(tmp_path, monkeypatch):
     assert [p.title for p in profiles] == ["甲书", "乙书"]
 
 
+# ======================== 跨书 embedding 一致性诊断（P2-2） ========================
+
+def _write_vector_marker(corpus_dir, **info):
+    from rag.utils.files import mark_stage_done
+    vector_dir = corpus_dir / "data" / "vector"
+    vector_dir.mkdir(parents=True)
+    mark_stage_done(str(vector_dir), **info)
+
+
+def test_probe_vector_index_not_built(tmp_path, monkeypatch):
+    _make_corpus(tmp_path, "BookA", "甲书")
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    status = corpus.probe_vector_index(corpus.load_profile("BookA"))
+    assert status.built is False
+    assert status.matches_current is True   # 未构建不算冲突
+
+
+def test_probe_vector_index_matches_current(tmp_path, monkeypatch):
+    cd = _make_corpus(tmp_path, "BookA", "甲书")
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    monkeypatch.setattr(config, "ACTIVE_EMBED_MODEL_NAME", "model-x")
+    _write_vector_marker(cd, embed_model="model-x", vector_dim=1024)
+    status = corpus.probe_vector_index(corpus.load_profile("BookA"))
+    assert status.built is True
+    assert status.embed_model == "model-x"
+    assert status.vector_dim == 1024
+    assert status.matches_current is True
+
+
+def test_probe_vector_index_mismatch(tmp_path, monkeypatch):
+    cd = _make_corpus(tmp_path, "BookA", "甲书")
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    monkeypatch.setattr(config, "ACTIVE_EMBED_MODEL_NAME", "model-new")
+    _write_vector_marker(cd, embed_model="model-old", vector_dim=4096)
+    status = corpus.probe_vector_index(corpus.load_profile("BookA"))
+    assert status.built is True
+    assert status.matches_current is False   # 换模型 → 冲突，list 会提示重建
+
+
+def test_probe_vector_index_legacy_marker_no_model(tmp_path, monkeypatch):
+    # 旧产物无 embed_model 字段：按「一致」处理（与加载期检查同策略）
+    cd = _make_corpus(tmp_path, "BookA", "甲书")
+    monkeypatch.setattr(config, "CORPORA_ROOT", str(tmp_path))
+    _write_vector_marker(cd, num_nodes=8)
+    status = corpus.probe_vector_index(corpus.load_profile("BookA"))
+    assert status.built is True
+    assert status.embed_model == ""
+    assert status.matches_current is True
+
+
 def test_query_rewriter_binds_prompts_at_init(tmp_path, monkeypatch):
     """引擎与语料绑定：Rewriter 构造时固化 prompt，之后切书不影响已建实例。"""
     from rag.retrieval.query_rewriter import QueryRewriter

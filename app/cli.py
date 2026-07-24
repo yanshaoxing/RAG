@@ -21,7 +21,7 @@ import argparse
 import os
 import sys
 
-from rag import corpus
+from rag import config, corpus
 from rag.engine.bootstrap import build_query_engine, format_source_nodes, init_settings
 from rag.logging_utils import capture_pipeline_logs
 from rag.metering import capture_usage, step_timer
@@ -189,6 +189,12 @@ if __name__ == "__main__":
         for p in profiles:
             marker = " *" if p.slug == corpus.get_active_slug() else ""
             print(f"  {p.slug}  《{p.title}》{marker}  {p.description}")
+            # embedding 全局约束：向量索引由别的嵌入模型构建时，提前提示需重建
+            status = corpus.probe_vector_index(p)
+            if status.built and not status.matches_current:
+                print(f"      ⚠️ 向量索引由 {status.embed_model!r} 构建，与当前嵌入模型 "
+                      f"{config.ACTIVE_EMBED_MODEL_NAME!r} 不一致；查询该书前需重建向量阶段："
+                      f"python -m app.cli --rebuild vector -c {p.slug} --yes")
         raise SystemExit(0)
 
     if args.corpus:

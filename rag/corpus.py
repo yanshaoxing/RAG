@@ -15,6 +15,11 @@
 prompt 与术语表）全部在引擎构建时绑定，切换激活语料不影响已构建的引擎；
 构建期组件（摘要树 / 图谱 prompt、图规则）读取激活语料，因此构建必须在
 bootstrap 的构建锁内、切换激活语料后进行。
+
+⚠️ embedding 是全局硬约束（不随引擎绑定）：向量检索用的是全局 Settings.embed_model，
+所有书必须共用同一个嵌入模型与维度（EMBED_VECTOR_DIM）。一本书的向量索引若由别的
+嵌入模型构建，加载时 staged_indexer._check_embed_model_match 会显式报错（向量空间不同，
+相似度无意义）。probe_vector_index() 提供跨书的提前诊断，list 入口据此给出重建提示。
 """
 
 import json
@@ -58,6 +63,35 @@ class CorpusProfile:
     @property
     def data_dir(self) -> str:
         return os.path.join(self.corpus_dir, "data")
+
+
+@dataclass(frozen=True)
+class VectorIndexStatus:
+    """一本书向量索引的构建状态 —— 用于跨书 embedding 一致性诊断。"""
+
+    built: bool                 # 是否已有构建完成的向量索引（有 _DONE 标记）
+    embed_model: str            # 构建所用嵌入模型（旧产物无此字段时为 ""）
+    vector_dim: int | None      # 构建维度（旧产物无此字段时为 None）
+    matches_current: bool       # 与当前配置的嵌入模型是否一致（未构建 / 无记录时视为一致，不算冲突）
+
+
+def probe_vector_index(profile: CorpusProfile) -> VectorIndexStatus:
+    """读取一本书向量索引的 _DONE 标记，判断它与当前嵌入模型是否一致。
+
+    纯读盘、不切换激活语料、不加载索引，供 list 等入口做提前诊断：一本书的向量索引
+    由别的嵌入模型构建时，真正查询它会在 staged_indexer._check_embed_model_match 报错，
+    这里让 --list 就能提前看到冲突并给出重建提示。旧产物缺 embed_model 字段时按「一致」
+    处理（与加载期检查同策略，保持向后兼容）。
+    """
+    from rag.utils.files import read_stage_info
+
+    info = read_stage_info(os.path.join(profile.data_dir, "vector"))
+    if not info:
+        return VectorIndexStatus(built=False, embed_model="", vector_dim=None, matches_current=True)
+    built_with = info.get("embed_model", "")
+    dim = info.get("vector_dim")
+    matches = (not built_with) or built_with == config.ACTIVE_EMBED_MODEL_NAME
+    return VectorIndexStatus(built=True, embed_model=built_with, vector_dim=dim, matches_current=matches)
 
 
 def load_profile(slug: str) -> CorpusProfile:

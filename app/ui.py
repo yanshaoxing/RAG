@@ -46,7 +46,7 @@ st.title(f"📚 《{selected.title}》知识库问答")
 
 
 # ---------- 加载索引（按语料缓存，进程内每本书只构建一次） ----------
-@st.cache_resource
+@st.cache_resource(max_entries=3)   # 限制常驻引擎数，书多了内存不无上限增长
 def load_index_and_engine(slug: str):
     """初始化 Settings 并加载/构建指定语料的索引，组装检索 + 查询引擎。"""
     init_settings()
