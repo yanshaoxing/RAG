@@ -347,9 +347,28 @@ class DavyLLM(CustomLLM):
 
 # ======================== 工厂函数 ========================
 
+def _require_api_key(key: str, env_name: str, role: str) -> str:
+    """校验 API key 非空 —— 缺失时立刻报错并指出该设哪个环境变量，而不是等到 401。
+
+    密钥一律不在代码里留明文兜底值，故未配置时必须显式失败。
+    """
+    if not key:
+        raise ValueError(
+            f"{role}的 API key 未配置：请在项目根目录 .env 或环境变量中设置 {env_name}"
+        )
+    return key
+
+
+def _create_davy_llm(**kwargs: Any) -> DavyLLM:
+    """创建 Davy（内网）LLM，构造前校验密钥已配置。"""
+    _require_api_key(config.DAVY_API_KEY, "RAG_DAVY_API_KEY", "Davy 内网端点")
+    return DavyLLM(**kwargs)
+
+
 def _create_aliyun_llm(model_name: Optional[str] = None,
                        temperature: Optional[float] = None) -> DavyLLM:
     """创建阿里云（公网 OpenAI 兼容端点）LLM，复用 DavyLLM 客户端。"""
+    _require_api_key(config.ALIYUN_CHAT_API_KEY, "RAG_PUBLIC_CHAT_API_KEY", "阿里云 chat 端点")
     return DavyLLM(
         model_name=model_name or config.ALIYUN_MAIN_MODEL,
         base_url=config.ALIYUN_CHAT_BASE_URL,
@@ -365,7 +384,7 @@ def create_answer_llm() -> CustomLLM:
     if config.ANSWER_PROVIDER == "aliyun":
         return _create_aliyun_llm()
     if config.ANSWER_PROVIDER == "davy":
-        return DavyLLM()
+        return _create_davy_llm()
     return Ollama(
         model=config.ANSWER_OLLAMA_MODEL,
         request_timeout=config.ANSWER_OLLAMA_TIMEOUT,
@@ -378,7 +397,7 @@ def create_rewrite_llm() -> CustomLLM:
     if config.REWRITE_PROVIDER == "aliyun":
         return _create_aliyun_llm(temperature=config.REWRITE_TEMPERATURE)
     if config.REWRITE_PROVIDER == "davy":
-        return DavyLLM()
+        return _create_davy_llm()
     return Ollama(
         model=config.REWRITE_OLLAMA_MODEL,
         request_timeout=config.REWRITE_OLLAMA_TIMEOUT,
@@ -391,7 +410,7 @@ def create_summary_llm() -> CustomLLM:
     if config.SUMMARY_LLM_PROVIDER == "aliyun":
         return _create_aliyun_llm(temperature=config.SUMMARY_LLM_TEMPERATURE)
     if config.SUMMARY_LLM_PROVIDER == "davy":
-        return DavyLLM(temperature=config.SUMMARY_LLM_TEMPERATURE)
+        return _create_davy_llm(temperature=config.SUMMARY_LLM_TEMPERATURE)
     return Ollama(
         model=config.SUMMARY_OLLAMA_MODEL,
         request_timeout=config.SUMMARY_OLLAMA_TIMEOUT,
@@ -411,7 +430,7 @@ def create_validate_llm() -> Optional[CustomLLM]:
         )
 
     if config.GRAPH_VALIDATE_LLM_PROVIDER == "davy":
-        return DavyLLM(
+        return _create_davy_llm(
             model_name=config.GRAPH_VALIDATE_DAVY_MODEL,
             temperature=config.GRAPH_VALIDATE_LLM_TEMPERATURE,
         )

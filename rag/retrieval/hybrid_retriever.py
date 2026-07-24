@@ -297,7 +297,8 @@ class HybridRetriever(BaseRetriever):
         2. 扫描 gap，gap > threshold 时截断（不少于 min_candidates）
         3. 无大 gap 取前 max_candidates
         """
-        filtered = [n for n in nodes if n.score >= min_score]
+        # score 可能为 None（检索器未打分的节点），按 0 处理而非抛 TypeError
+        filtered = [n for n in nodes if (n.score or 0.0) >= min_score]
         if not filtered:
             return []
 

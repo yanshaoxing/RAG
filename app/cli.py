@@ -134,8 +134,10 @@ if __name__ == "__main__":
         raise SystemExit(0)
 
     if args.corpus:
+        # 这里只校验档案可加载，不改全局激活态 ——
+        # 语料切换统一由 build_query_engine(corpus_slug) 在构建锁内完成
         try:
-            profile = corpus.set_active_corpus(args.corpus)
+            profile = corpus.load_profile(args.corpus)
         except (FileNotFoundError, ValueError) as e:
             available = "、".join(p.slug for p in corpus.list_corpora()) or "（无）"
             print(f"{e}\n可用语料：{available}", file=sys.stderr)
@@ -145,7 +147,7 @@ if __name__ == "__main__":
     print(f"当前语料：《{profile.title}》（{profile.slug}）", flush=True)
 
     q = " ".join(args.question).strip()
-    engine = build_engine()
+    engine = build_engine(args.corpus)   # None = 沿用当前激活语料
     if q:
         # 单次模式：查询失败以非 0 退出码结束，便于脚本化调用判断
         ok = run_query(engine, q)
