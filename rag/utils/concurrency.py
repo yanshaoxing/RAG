@@ -15,6 +15,7 @@ run_parallel_captured 的约定：
   - 任一任务抛异常时：先回放全部日志，再抛出第一个异常（按任务顺序）。
 """
 
+import contextvars
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Callable, Optional, TypeVar
@@ -54,7 +55,14 @@ def run_parallel_captured(
 
     workers = min(max_workers or len(tasks), len(tasks))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_run, fn) for fn in tasks]
+        # 每个任务在主线程上下文的独立副本中执行：
+        #   - 用量计量（rag.metering）的 Meter 是同一个对象引用，worker 的 token
+        #     直接累加进去（Meter 内部加锁）—— 三路改写与子查询都在 worker 里，
+        #     不传播上下文就会漏掉查询期的绝大部分调用；
+        #   - 日志缓冲仍是各 worker 在副本里各自新建、由主线程按序回放，
+        #     顺序语义不受影响（副本内 set 不会写回主线程上下文）。
+        futures = [executor.submit(contextvars.copy_context().run, _run, fn)
+                   for fn in tasks]
         outcomes = [f.result() for f in futures]
 
     results: list[T] = []

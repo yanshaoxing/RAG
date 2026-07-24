@@ -18,6 +18,7 @@ from typing import Optional
 import requests
 
 from rag import config
+from rag.metering import record_usage
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +89,14 @@ class Reranker:
             return []
 
         try:
+            _start = time.perf_counter()
             resp = self._post_rerank({
                 "model": self._model_name,
                 "query": query,
                 "documents": documents,
                 "top_n": top_k,
             })
+            _elapsed = time.perf_counter() - _start
 
             if resp.status_code != 200:
                 detail = resp.text[:500]
@@ -107,6 +110,11 @@ class Reranker:
                 return None
 
             data = resp.json()
+            # rerank 响应回传 usage.total_tokens（按输入价计费）
+            _usage = data.get("usage") or {}
+            record_usage(self._model_name, "rerank",
+                         prompt_tokens=_usage.get("total_tokens") if _usage else None,
+                         elapsed=_elapsed)
             results = data.get("results", [])
             if not results:
                 logger.warning("Reranker 返回空 results，降级")

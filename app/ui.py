@@ -17,6 +17,7 @@ import streamlit as st
 from rag import corpus
 from rag.engine.bootstrap import init_settings, build_query_engine, format_source_nodes
 from rag.logging_utils import capture_pipeline_logs
+from rag.metering import capture_usage, step_timer
 
 logger = logging.getLogger(__name__)
 
@@ -76,28 +77,32 @@ if prompt := st.chat_input("请输入你的问题"):
 
     # ---- 步骤 3：执行查询（检索阶段；流式开启时回答在步骤 4 逐块渲染） ----
     with st.chat_message("assistant"):
-        with st.spinner("思考中..."):
-            with capture_pipeline_logs() as cap:
-                try:
-                    response = query_engine.query(prompt)
-                except Exception as e:
-                    logger.exception("查询失败")
-                    st.error(f"查询失败（网络/LLM 服务异常）: {e}")
-                    st.stop()
-        run_logs = cap.drain()
+        # 计量覆盖到步骤 4：流式回答惰性生成，usage 在消费 response_gen 时才产生
+        with capture_usage() as meter:
+            with st.spinner("思考中..."):
+                with capture_pipeline_logs() as cap:
+                    try:
+                        with step_timer("步骤 3 检索"):
+                            response = query_engine.query(prompt)
+                    except Exception as e:
+                        logger.exception("查询失败")
+                        st.error(f"查询失败（网络/LLM 服务异常）: {e}")
+                        st.stop()
+            run_logs = cap.drain()
 
-        # ---- 步骤 4：LLM 生成回答（流式逐块渲染） ----
-        st.markdown("**步骤 4：LLM 生成回答**")
-        try:
-            if hasattr(response, "response_gen"):
-                answer = str(st.write_stream(response.response_gen))
-            else:
-                answer = str(response)
-                st.markdown(answer)
-        except Exception as e:
-            logger.exception("回答生成失败")
-            st.error(f"回答生成失败（网络/LLM 服务异常）: {e}")
-            st.stop()
+            # ---- 步骤 4：LLM 生成回答（流式逐块渲染） ----
+            st.markdown("**步骤 4：LLM 生成回答**")
+            try:
+                with step_timer("步骤 4 回答生成"):
+                    if hasattr(response, "response_gen"):
+                        answer = str(st.write_stream(response.response_gen))
+                    else:
+                        answer = str(response)
+                        st.markdown(answer)
+            except Exception as e:
+                logger.exception("回答生成失败")
+                st.error(f"回答生成失败（网络/LLM 服务异常）: {e}")
+                st.stop()
 
         # ---- 步骤 5：输出参考文献 ----
         st.markdown("**步骤 5：输出参考文献**")
@@ -107,6 +112,13 @@ if prompt := st.chat_input("请输入你的问题"):
                 st.text(preview + "...")
         else:
             st.caption("（无参考文献）")
+
+        # 本次查询的用量与耗时（token 取自服务端 usage）
+        meter_lines = meter.step_lines() + meter.summary_lines()
+        if meter_lines:
+            with st.expander("用量与耗时"):
+                for line in meter_lines:
+                    st.text(line)
 
         # 本次查询的运行日志（检索管线内部产生）
         if run_logs:

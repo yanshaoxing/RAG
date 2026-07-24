@@ -12,7 +12,6 @@ from typing import Optional
 from llama_index.core import Settings
 from llama_index.core.query_engine import RetrieverQueryEngine
 from llama_index.embeddings.ollama import OllamaEmbedding
-from llama_index.embeddings.openai_like import OpenAILikeEmbedding
 
 from rag import config, corpus
 from rag.indexing.staged_indexer import get_or_build_index
@@ -23,6 +22,7 @@ from rag.engine.query_engine import create_query_engine
 from rag.retrieval.query_rewriter import QueryRewriter
 from rag.retrieval.query_decomposer import QueryDecomposer
 from rag.llm.factory import create_answer_llm, create_rewrite_llm
+from rag.llm.embedding import MeteredOpenAILikeEmbedding
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 def init_settings() -> None:
     """初始化全局 Settings（embedding + 回答 LLM）。"""
     if config.EMBED_PROVIDER == "aliyun":
-        Settings.embed_model = OpenAILikeEmbedding(
+        # 计量版子类：父类会丢弃服务端回传的 usage（见 rag/llm/embedding.py）
+        Settings.embed_model = MeteredOpenAILikeEmbedding(
             model_name=config.ALIYUN_EMBED_MODEL,
             api_base=config.ALIYUN_EMBED_BASE_URL,
             api_key=config.ALIYUN_EMBED_API_KEY,

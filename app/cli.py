@@ -22,6 +22,7 @@ import sys
 from rag import corpus
 from rag.engine.bootstrap import init_settings, build_query_engine, format_source_nodes
 from rag.logging_utils import capture_pipeline_logs
+from rag.metering import capture_usage, step_timer
 
 
 def print_step(msg: str):
@@ -59,36 +60,41 @@ def build_engine(corpus_slug=None):
 
 def run_query(query_engine, question: str) -> bool:
     """对已构建的引擎执行一次查询并打印结果。返回是否成功（供单次模式设置 exit code）。"""
-    # ---- 步骤 3：执行查询 ----
-    print_step("步骤 3：执行查询")
-    with capture_pipeline_logs() as cap:
+    # 计量上下文必须覆盖到步骤 4：流式回答是惰性生成的，
+    # 那次 LLM 调用的 usage 在 response_gen 被消费时才产生
+    with capture_usage() as meter:
+        # ---- 步骤 3：执行查询 ----
+        print_step("步骤 3：执行查询")
+        with capture_pipeline_logs() as cap:
+            try:
+                with step_timer("步骤 3 检索（改写+三路+过滤+RRF+重排+图谱）"):
+                    response = query_engine.query(question)
+            except Exception as e:
+                for line in cap.drain():
+                    print(f"  {line}")
+                print(f"查询失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
+                return False
+
+        # ---- 打印检索日志 ----
+        print("=" * 60, flush=True)
+        for line in cap.drain():
+            print(f"  {line}", flush=True)
+        print("=" * 60, flush=True)
+
+        # ---- 步骤 4：LLM 生成回答（流式逐块打印） ----
+        print_step("步骤 4：LLM 生成回答")
         try:
-            response = query_engine.query(question)
+            with step_timer("步骤 4 回答生成"):
+                if hasattr(response, "response_gen"):
+                    print("  ", end="", flush=True)
+                    for chunk in response.response_gen:
+                        print(chunk, end="", flush=True)
+                    print(flush=True)
+                else:
+                    print(f"  {response}")
         except Exception as e:
-            for line in cap.drain():
-                print(f"  {line}")
-            print(f"查询失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
+            print(f"\n回答生成失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
             return False
-
-    # ---- 打印检索日志 ----
-    print("=" * 60, flush=True)
-    for line in cap.drain():
-        print(f"  {line}", flush=True)
-    print("=" * 60, flush=True)
-
-    # ---- 步骤 4：LLM 生成回答（流式逐块打印） ----
-    print_step("步骤 4：LLM 生成回答")
-    try:
-        if hasattr(response, "response_gen"):
-            print("  ", end="", flush=True)
-            for chunk in response.response_gen:
-                print(chunk, end="", flush=True)
-            print(flush=True)
-        else:
-            print(f"  {response}")
-    except Exception as e:
-        print(f"\n回答生成失败（网络/LLM 服务异常）: {e}", file=sys.stderr)
-        return False
 
     # ---- 步骤 5：输出参考文献 ----
     print_step("步骤 5：输出参考文献")
@@ -97,6 +103,10 @@ def run_query(query_engine, question: str) -> bool:
             print(f"  {title} | {preview}...")
     else:
         print("  （无参考文献）")
+
+    # ---- 步骤 6：用量与耗时 ----
+    for line in meter.step_lines() + meter.summary_lines():
+        print(f"  {line}", flush=True)
     return True
 
 

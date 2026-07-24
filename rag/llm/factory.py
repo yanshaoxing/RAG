@@ -21,10 +21,12 @@ from llama_index.core.llms import (
     LLMMetadata,
     MessageRole,
 )
+from llama_index.core.constants import DEFAULT_CONTEXT_WINDOW, DEFAULT_NUM_OUTPUTS
 from llama_index.core.llms.callbacks import llm_chat_callback, llm_completion_callback
 from llama_index.llms.ollama import Ollama
 
 from rag import config
+from rag.metering import record_openai_usage
 
 logger = logging.getLogger(__name__)
 
@@ -135,6 +137,10 @@ class DavyLLM(CustomLLM):
     request_timeout: float = config.DAVY_TIMEOUT
     # None = 不传该参数（Davy 内网端点不认识它）；True/False = 显式开关思考
     enable_thinking: Optional[bool] = None
+    # 如实申报给 llama_index —— 报小会导致合成器多轮 refine（见 config 注释）。
+    # 默认沿用 llama_index 的保守值，公网模型由 _create_aliyun_llm 显式覆盖。
+    context_window: int = DEFAULT_CONTEXT_WINDOW
+    num_output: int = DEFAULT_NUM_OUTPUTS
 
     def __init__(
         self,
@@ -145,11 +151,17 @@ class DavyLLM(CustomLLM):
         temperature: Optional[float] = None,
         request_timeout: Optional[float] = None,
         enable_thinking: Optional[bool] = None,
+        context_window: Optional[int] = None,
+        num_output: Optional[int] = None,
         **kwargs: Any,
     ):
         super().__init__(**kwargs)
         if enable_thinking is not None:
             self.enable_thinking = enable_thinking
+        if context_window is not None:
+            self.context_window = context_window
+        if num_output is not None:
+            self.num_output = num_output
         if model_name is not None:
             self.model_name = model_name
         if base_url is not None:
@@ -165,7 +177,12 @@ class DavyLLM(CustomLLM):
 
     @property
     def metadata(self) -> LLMMetadata:
-        return LLMMetadata(model_name=self.model_name, is_chat_model=True)
+        return LLMMetadata(
+            model_name=self.model_name,
+            is_chat_model=True,
+            context_window=self.context_window,
+            num_output=self.num_output,
+        )
 
     @staticmethod
     def _strip_thinking(text: Optional[str]) -> str:
@@ -261,7 +278,12 @@ class DavyLLM(CustomLLM):
         raise RuntimeError("Davy 请求重试逻辑异常退出")
 
     def _call(self, request_body: dict) -> dict:
-        return self._post_with_retry(request_body).json()
+        start = time.perf_counter()
+        resp = self._post_with_retry(request_body).json()
+        # token 数取服务端回传的 usage（计费同源），不本地估算
+        record_openai_usage(self.model_name, "chat", resp.get("usage"),
+                            elapsed=time.perf_counter() - start)
+        return resp
 
     @llm_chat_callback()
     def chat(self, messages: Sequence[ChatMessage], **kwargs: Any) -> ChatResponse:
@@ -290,6 +312,8 @@ class DavyLLM(CustomLLM):
                 think_filter = ThinkStreamFilter()
                 full_content = ""
                 emitted = False
+                start = time.perf_counter()
+                usage = None
                 response = self._post_with_retry(body, stream=True)
                 try:
                     for line in response.iter_lines():
@@ -302,8 +326,14 @@ class DavyLLM(CustomLLM):
                             line = line[6:]
                         try:
                             chunk = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        # 末尾 usage chunk：choices 为空数组，此前被异常分支静默跳过
+                        if chunk.get("usage"):
+                            usage = chunk["usage"]
+                        try:
                             delta = chunk["choices"][0]["delta"].get("content", "")
-                        except (json.JSONDecodeError, KeyError, IndexError, TypeError):
+                        except (KeyError, IndexError, TypeError):
                             continue
                         if not delta:
                             continue
@@ -324,6 +354,8 @@ class DavyLLM(CustomLLM):
                             message=ChatMessage(role=MessageRole.ASSISTANT, content=full_content),
                             delta=tail,
                         )
+                    record_openai_usage(self.model_name, "chat", usage,
+                                        elapsed=time.perf_counter() - start)
                     return
                 except Exception as e:
                     if emitted or stream_attempt >= max_stream_attempts - 1:
@@ -388,6 +420,8 @@ def _create_aliyun_llm(model_name: Optional[str] = None,
         temperature=temperature,
         request_timeout=config.ALIYUN_CHAT_TIMEOUT,
         enable_thinking=config.ALIYUN_ENABLE_THINKING,
+        context_window=config.ALIYUN_CONTEXT_WINDOW,
+        num_output=config.ALIYUN_NUM_OUTPUT,
     )
 
 
